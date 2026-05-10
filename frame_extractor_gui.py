@@ -9,6 +9,7 @@ import sys
 import os
 import shutil
 import platform
+import time
 import cv2
 import numpy as np
 from pathlib import Path
@@ -753,13 +754,12 @@ class AICleanupWorker(QThread):
 class SettingsDialog(QDialog):
     """设置对话框：API 配置、环境检测、缓存管理"""
 
-    def __init__(self, settings, cache_dir=None, parent=None):
+    def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setMinimumWidth(500)
         self.setMinimumHeight(500)
         self.settings = dict(settings)
-        self.cache_dir = cache_dir
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -972,18 +972,32 @@ class SettingsDialog(QDialog):
             return False, str(e)
 
     def _clear_cache(self):
-        if not self.cache_dir or not os.path.isdir(self.cache_dir):
-            QMessageBox.information(self, "提示", "当前没有可清除的缓存目录")
+        # 扫描用户主目录下所有 _frames 目录
+        home = os.path.expanduser("~")
+        frames_dirs = []
+        for root, dirs, files in os.walk(home):
+            # 跳过隐藏目录和系统目录
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (
+                'node_modules', '__pycache__', '.git', 'Library', 'AppData')]
+            for d in dirs:
+                if d.endswith("_frames"):
+                    frames_dirs.append(os.path.join(root, d))
+            # 只扫描两层深度
+            if root.count(os.sep) - home.count(os.sep) >= 2:
+                dirs.clear()
+
+        if not frames_dirs:
+            QMessageBox.information(self, "提示", "没有找到缓存目录")
             return
+
         to_delete = []
-        for item in os.listdir(self.cache_dir):
-            if item.endswith("-最终版.txt"):
-                continue
-            full = os.path.join(self.cache_dir, item)
-            if os.path.isdir(full) and item in ("coarse", "selected"):
+        for frames_dir in frames_dirs:
+            for item in os.listdir(frames_dir):
+                if item.endswith("-最终版.txt"):
+                    continue
+                full = os.path.join(frames_dir, item)
                 to_delete.append(full)
-            elif item == "ocr_results.txt":
-                to_delete.append(full)
+
         if not to_delete:
             QMessageBox.information(self, "提示", "没有找到可清除的缓存文件")
             return
@@ -1143,26 +1157,105 @@ class FrameExtractorGUI(QMainWindow):
         layout.addWidget(self.log_text, 1)
 
     def _open_settings(self):
-        cache_dir = self.output_path if hasattr(self, 'output_path') else None
-        dialog = SettingsDialog(self.settings, cache_dir=cache_dir, parent=self)
+        dialog = SettingsDialog(self.settings, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self.settings = dialog.get_settings()
             self.log_text.append("设置已保存")
 
     def _select_video(self):
-        path, _ = QFileDialog.getOpenFileName(
+        paths, _ = QFileDialog.getOpenFileNames(
             self, "选择视频文件", "",
             "视频文件 (*.mp4 *.mkv *.avi *.flv *.mov *.wmv *.webm);;所有文件 (*)"
         )
-        if path:
-            self.video_path = path
-            self.video_path_label.setText(path)
+        if not paths:
+            return
+
+        if len(paths) == 1:
+            # 单视频模式
+            self.video_path = paths[0]
+            self.video_path_label.setText(paths[0])
             self.video_path_label.setStyleSheet("color: #111;")
-            self.output_path = os.path.join(os.path.dirname(path), Path(path).stem + "_frames")
+            self.output_path = os.path.join(os.path.dirname(paths[0]),
+                                            Path(paths[0]).stem + "_frames")
+            self._is_batch = False
+        else:
+            # 多视频：自动开启批处理
+            self._batch_videos = list(paths)
+            self._batch_index = 0
+            self._batch_total = len(paths)
+            self._is_batch = True
+            self.video_path_label.setText(f"已选择 {len(paths)} 个视频（批处理模式）")
+            self.video_path_label.setStyleSheet("color: #111;")
+
+    def _run_next_batch_video(self):
+        """处理批处理队列中的下一个视频"""
+        if self._batch_index >= self._batch_total:
+            # 全部完成
+            elapsed = time.time() - self._start_time
+            minutes = int(elapsed // 60)
+            seconds = elapsed % 60
+            self.log_text.append(f"\n{'='*40}")
+            self.log_text.append(f"批处理全部完成! 共 {self._batch_total} 个视频")
+            if minutes > 0:
+                self.log_text.append(f"总耗时: {minutes}分{seconds:.1f}秒")
+            else:
+                self.log_text.append(f"总耗时: {seconds:.1f}秒")
+            self.log_text.append(f"{'='*40}")
+            self.btn_smart.setEnabled(True)
+            self.btn_stop.setEnabled(False)
+
+            # 打开最后一个视频的输出目录
+            last_video = self._batch_videos[-1]
+            last_output = os.path.join(os.path.dirname(last_video),
+                                       Path(last_video).stem + "_frames")
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("批处理完成")
+            msg_box.setText(f"共处理 {self._batch_total} 个视频")
+            btn_folder = msg_box.addButton("打开最后输出目录", QMessageBox.AcceptRole)
+            msg_box.addButton("关闭", QMessageBox.RejectRole)
+            msg_box.exec()
+            if msg_box.clickedButton() == btn_folder:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(last_output))
+            return
+
+        video_path = self._batch_videos[self._batch_index]
+        self.video_path = video_path
+        self.output_path = os.path.join(os.path.dirname(video_path),
+                                        Path(video_path).stem + "_frames")
+        self._region = None
+
+        self.log_text.append(f"\n{'='*40}")
+        self.log_text.append(f"[{self._batch_index+1}/{self._batch_total}] {os.path.basename(video_path)}")
+        self.log_text.append(f"{'='*40}")
+
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            vfps = cap.get(cv2.CAP_PROP_FPS)
+            dur = total / vfps if vfps > 0 else 0
+            self.log_text.append(f"视频: {dur:.0f}秒, {vfps:.0f}fps, {total}帧")
+            cap.release()
+
+        self.progress_bar.setValue(0)
+        self.btn_smart.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+
+        self.worker = SmartExtractWorker(video_path, self.output_path, 9, 0.3)
+        self.worker.progress.connect(self._on_progress)
+        self.worker.log.connect(self._on_log)
+        self.worker.coarse_ready.connect(self._on_coarse_ready)
+        self.worker.finished.connect(self._on_smart_finished)
+        self.worker.start()
 
     def _stop(self):
         if self.worker:
             self.worker.stop()
+        # 批处理模式下停止整个批处理
+        if getattr(self, '_is_batch', False):
+            self._is_batch = False
+            self.btn_smart.setEnabled(True)
+            self.btn_stop.setEnabled(False)
+            self.log_text.append("\n批处理已停止")
 
     def _on_progress(self, current, total):
         pct = int(current / total * 100) if total > 0 else 0
@@ -1172,11 +1265,25 @@ class FrameExtractorGUI(QMainWindow):
         self.log_text.append(msg)
 
     def _smart_extract(self):
+        # 批处理模式
+        if getattr(self, '_is_batch', False):
+            self._start_time = time.time()
+            self._batch_index = 0
+            self.log_text.clear()
+            self.log_text.append(f"批处理模式: 共 {self._batch_total} 个视频")
+            for i, p in enumerate(self._batch_videos):
+                self.log_text.append(f"  {i+1}. {os.path.basename(p)}")
+            self.log_text.append("")
+            self._run_next_batch_video()
+            return
+
+        # 单视频模式
         if not hasattr(self, 'video_path'):
             self.log_text.append("请先选择视频文件")
             return
 
-        self._region = None  # 存储用户选定的 OCR 区域
+        self._start_time = time.time()
+        self._region = None
 
         cap = cv2.VideoCapture(self.video_path)
         if cap.isOpened():
@@ -1307,10 +1414,32 @@ class FrameExtractorGUI(QMainWindow):
         self.worker.start()
 
     def _on_ai_finished(self, success, msg):
-        self.btn_smart.setEnabled(True)
-        self.btn_stop.setEnabled(False)
         self.progress_bar.setValue(100 if success else self.progress_bar.value())
         self.log_text.append(f"\n{'✓' if success else '✗'} {msg}")
+
+        # 批处理模式：自动处理下一个视频
+        if getattr(self, '_is_batch', False):
+            if success:
+                self._batch_index += 1
+            else:
+                self.log_text.append(f"跳过失败的视频，继续处理下一个")
+                self._batch_index += 1
+            self._run_next_batch_video()
+            return
+
+        # 单视频模式
+        self.btn_smart.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+        # 输出总耗时
+        if hasattr(self, '_start_time'):
+            elapsed = time.time() - self._start_time
+            minutes = int(elapsed // 60)
+            seconds = elapsed % 60
+            if minutes > 0:
+                self.log_text.append(f"\n总耗时: {minutes}分{seconds:.1f}秒")
+            else:
+                self.log_text.append(f"\n总耗时: {seconds:.1f}秒")
 
         if not success:
             return
