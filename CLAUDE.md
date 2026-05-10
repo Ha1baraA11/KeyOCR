@@ -1,5 +1,8 @@
 # CLAUDE.md - ZhenTiqu (帧提取工具)
 
+## 快捷指令
+- **`update`** — 用户说 "update" 时，自动执行：1) 更新 memory；2) 更新 CLAUDE.md；3) `git add . && git commit && git push` 推送到 GitHub。一次性完成，无需额外确认。
+
 ## 项目概述
 视频分帧工具，基于 PySide6 GUI + OpenCV，从视频中智能提取关键帧并批量 OCR。
 
