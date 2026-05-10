@@ -13,7 +13,8 @@
 - 启动命令：`python frame_extractor_gui.py`
 
 ## 项目结构
-- `frame_extractor_gui.py` — 主程序（GUI + 所有算法 + 批量 OCR）
+- `frame_extractor_gui.py` — 主程序（GUI + 所有算法 + 批量 OCR + 区域检测）
+- `detect_region.py` — 独立的区域检测测试脚本
 - `智能筛选算法迭代.md` — 完整的算法迭代过程记录
 - `.claude/task.md` — 任务状态记录
 - `.claude/test_results.md` — 测试结果记录
@@ -35,6 +36,19 @@
 
 ### 批量 OCR（BatchOCRWorker）
 使用 RapidOCR（PP-OCRv4, ONNX Runtime）逐张识别图片，结果合并输出到 `ocr_results.txt`。
+
+### OCR 区域检测（detect_center_region）
+自动检测帧中最大的纯色区域（背景杂乱，中间有纯色块如纸张/屏幕）：
+1. 计算局部标准差（纯色区域标准差低）
+2. Otsu 自适应阈值分离纯色和非纯色
+3. 形态学清理，找最大轮廓
+4. 逐行检查方差，精确裁剪上下边界
+5. 宽度取全宽，返回相对比例坐标
+
+### OCR 模式切换
+GUI 设置中支持两种 OCR 区域模式：
+- **自动 OCR**：粗扫完成后自动调用 detect_center_region 检测纯色区域
+- **手动 OCR**：粗扫完成后弹出 RegionSelectorDialog 让用户手动框选
 
 ## 测试结果（测试.mp4，4020帧，144秒）
 - 智能提取：738 帧，覆盖率 97.3%，压缩率 18.4%（5.4x）
