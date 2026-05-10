@@ -297,7 +297,7 @@ class SmartExtractWorker(QThread):
     progress = Signal(int, int)
     log = Signal(str)
     finished = Signal(bool, str)
-    coarse_ready = Signal(str)  # 粗扫完成，发送样本帧路径
+    coarse_ready = Signal(str)  # 粗扫完成，发送粗扫帧目录
 
     def __init__(self, video_path, output_dir, coarse_fps, margin_sec):
         super().__init__()
@@ -344,7 +344,7 @@ class SmartExtractWorker(QThread):
             coarse_files = sorted([f for f in os.listdir(coarse_dir)
                                    if f.startswith("frame_") and f.endswith(".png")])
             if coarse_files:
-                self.coarse_ready.emit(os.path.join(coarse_dir, coarse_files[0]))
+                self.coarse_ready.emit(coarse_dir)
 
             # === 阶段2: 检测转换峰值 ===
             self.log.emit(f"\n{'='*40}")
@@ -1076,6 +1076,45 @@ def detect_center_region(frame):
     return (0.0, y / h, 1.0, bh / h)
 
 
+def detect_stable_region(frames_dir, sample_count=8):
+    """从粗扫帧目录多帧采样，取中位数区域，避免单帧偏差。
+
+    优先密集采样前段帧（前 25%），若全部异常则回退到全范围采样。
+    """
+    files = sorted([f for f in os.listdir(frames_dir)
+                    if f.startswith("frame_") and f.endswith(".png")])
+    if not files:
+        return (0.0, 0.25, 1.0, 0.5)
+
+    def _sample(file_list):
+        step = max(1, len(file_list) // sample_count)
+        sampled = file_list[::step][:sample_count]
+        regions = []
+        for fname in sampled:
+            frame = cv2.imread(os.path.join(frames_dir, fname))
+            if frame is not None:
+                regions.append(detect_center_region(frame))
+        return regions
+
+    # 优先采样前 25% 的帧
+    early = files[:max(1, len(files) // 4)]
+    regions = _sample(early)
+    good = [r for r in regions if 0.20 <= r[3] <= 0.40]
+
+    if len(good) < 2:
+        # 前段帧不够，扩大到全范围
+        regions = _sample(files)
+        good = [r for r in regions if 0.20 <= r[3] <= 0.40]
+
+    if not good:
+        good = regions  # 全部异常时不过滤
+
+    # 取中位数
+    ys = sorted([r[1] for r in good])
+    hs = sorted([r[3] for r in good])
+    return (0.0, ys[len(ys) // 2], 1.0, hs[len(hs) // 2])
+
+
 class FrameExtractorGUI(QMainWindow):
     DEFAULT_SETTINGS = {
         "api_key": "tp-cq9dewdbgrz61kbykhbjczg3rvz5zg4nvuluuweadljy8k5z",
@@ -1309,39 +1348,41 @@ class FrameExtractorGUI(QMainWindow):
         self.worker.finished.connect(self._on_smart_finished)
         self.worker.start()
 
-    def _on_coarse_ready(self, sample_path):
+    def _on_coarse_ready(self, coarse_dir):
         """粗扫完成，根据模式自动检测或手动选择 OCR 区域"""
         ocr_mode = self.settings.get("ocr_mode", "auto")
 
         if ocr_mode == "auto":
             self.log_text.append("\n粗扫完成，自动检测 OCR 区域...")
             try:
-                frame = cv2.imread(sample_path)
-                if frame is not None:
-                    self._region = detect_center_region(frame)
-                    self.log_text.append(
-                        f"自动检测区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
-                        f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
-                else:
-                    self._region = None
-                    self.log_text.append("无法读取样本帧，将对全图 OCR")
+                self._region = detect_stable_region(coarse_dir)
+                self.log_text.append(
+                    f"自动检测区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
+                    f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
             except Exception as e:
                 self._region = None
                 self.log_text.append(f"自动检测失败: {e}，将对全图 OCR")
         else:
             self.log_text.append("\n粗扫完成，请手动选择 OCR 区域...")
             try:
-                dialog = RegionSelectorDialog(sample_path, self)
-                if dialog.exec() == QDialog.Accepted:
-                    self._region = dialog.region
-                    if self._region:
-                        self.log_text.append(
-                            f"已选定区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
-                            f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
+                # 手动模式：取第一帧作为预览
+                files = sorted([f for f in os.listdir(coarse_dir)
+                                if f.startswith("frame_") and f.endswith(".png")])
+                sample_path = os.path.join(coarse_dir, files[0]) if files else None
+                if sample_path:
+                    dialog = RegionSelectorDialog(sample_path, self)
+                    if dialog.exec() == QDialog.Accepted:
+                        self._region = dialog.region
+                        if self._region:
+                            self.log_text.append(
+                                f"已选定区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
+                                f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
+                        else:
+                            self.log_text.append("未画选区，将对全图 OCR")
                     else:
-                        self.log_text.append("未画选区，将对全图 OCR")
+                        self.log_text.append("已跳过区域选择，将对全图 OCR")
                 else:
-                    self.log_text.append("已跳过区域选择，将对全图 OCR")
+                    self.log_text.append("无粗扫帧，将对全图 OCR")
             except Exception as e:
                 self.log_text.append(f"区域选择失败: {e}，将对全图 OCR")
 
