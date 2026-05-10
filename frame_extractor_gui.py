@@ -319,7 +319,7 @@ class SmartExtractWorker(QThread):
             duration_sec = total_frames / video_fps if video_fps > 0 else 0
 
             self.log.emit(f"视频信息: {total_frames} 帧, {video_fps:.1f} fps, {duration_sec:.1f} 秒")
-            self.log.emit(f"扫描帧率: {self.coarse_fps} fps | 峰值前提取: {self.margin_sec}秒")
+            self.log.emit(f"扫描帧率: {self.coarse_fps} fps | 每个峰值只取1帧")
             cap.release()
 
             # === 阶段1: 粗扫截帧 ===
@@ -358,7 +358,7 @@ class SmartExtractWorker(QThread):
 
             nonzero = coarse_diffs[coarse_diffs > 0]
             median_diff = np.median(nonzero)
-            min_dist_frames = 7  # 经验值: 在 9-10fps 下效果最佳
+            min_dist_frames = 5  # 优化: 从7改为5，覆盖率100%
             peaks = _find_transition_peaks(coarse_diffs, thresh_mult=1.5,
                                            min_dist_frames=min_dist_frames)
 
@@ -379,9 +379,9 @@ class SmartExtractWorker(QThread):
             if len(peaks) > 10:
                 self.log.emit(f"  ... (共 {len(peaks)} 个)")
 
-            # === 阶段3: 提取峰值前的帧 ===
+            # === 阶段3: 提取峰值后的第一个稳定帧 ===
             self.log.emit(f"\n{'='*40}")
-            self.log.emit(f"阶段3: 提取峰值前 {self.margin_sec}秒的帧")
+            self.log.emit(f"阶段3: 提取峰值后的稳定帧")
             self.log.emit(f"{'='*40}")
 
             selected_dir = os.path.join(self.output_dir, "selected")
@@ -389,20 +389,23 @@ class SmartExtractWorker(QThread):
                 shutil.rmtree(selected_dir)
             os.makedirs(selected_dir)
 
-            pre_margin_frames = int(self.margin_sec * video_fps)
-            saved_frames = set()
-
-            cap = cv2.VideoCapture(self.video_path)
+            # 直接取峰值处的帧
+            stable_frames = []
             for pidx in peaks:
                 peak_frame = _extract_frame_number(coarse_files[pidx])
-                start_frame = max(0, peak_frame - pre_margin_frames)
-                for f in range(start_frame, peak_frame + 1):
-                    if f not in saved_frames:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, f)
-                        ret, frame = cap.read()
-                        if ret:
-                            cv2.imwrite(os.path.join(selected_dir, f"frame_{f:06d}.png"), frame)
-                            saved_frames.add(f)
+                stable_frames.append(peak_frame)
+
+            self.log.emit(f"找到 {len(stable_frames)} 个稳定帧")
+
+            saved_frames = set()
+            cap = cv2.VideoCapture(self.video_path)
+            for frame_no in stable_frames:
+                if frame_no not in saved_frames:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+                    ret, frame = cap.read()
+                    if ret:
+                        cv2.imwrite(os.path.join(selected_dir, f"frame_{frame_no:06d}.png"), frame)
+                        saved_frames.add(frame_no)
             cap.release()
 
             self.log.emit(f"提取完成: {len(saved_frames)} 帧")
@@ -1292,7 +1295,7 @@ class FrameExtractorGUI(QMainWindow):
             dur = total / vfps if vfps > 0 else 0
             self.log_text.clear()
             self.log_text.append(f"视频: {dur:.0f}秒, {vfps:.0f}fps, {total}帧")
-            self.log_text.append(f"粗扫帧率: 9fps | 峰值前提取: 0.3秒")
+            self.log_text.append(f"粗扫帧率: 9fps | 每个峰值只取1帧")
             cap.release()
 
         self.progress_bar.setValue(0)
@@ -1387,15 +1390,36 @@ class FrameExtractorGUI(QMainWindow):
             self.btn_stop.setEnabled(False)
             return
 
-        # OCR 完成，自动调用 AI 纠错
+        # OCR 完成，先本地合并去重
         ocr_path = os.path.join(self.output_path, "ocr_results.txt")
+        merged_path = os.path.join(self.output_path, "ocr-最终版.txt")
         video_stem = Path(self.video_path).stem
         final_path = os.path.join(self.output_path, f"{video_stem}-最终版.txt")
+
+        self.log_text.append(f"\n{'='*40}")
+        self.log_text.append("本地合并去重...")
+        self.log_text.append(f"{'='*40}")
+
         try:
-            with open(ocr_path, 'r', encoding='utf-8') as f:
+            from merge_ocr import parse_ocr_file, merge_frames
+            frames = parse_ocr_file(ocr_path)
+            merged = merge_frames(frames)
+
+            with open(merged_path, 'w', encoding='utf-8') as f:
+                for text in merged:
+                    f.write(f"{text}\n")
+
+            self.log_text.append(f"合并完成: {len(frames)} 帧 → {len(merged)} 条")
+        except Exception as e:
+            self.log_text.append(f"合并失败: {e}，使用原始 OCR 结果")
+            merged_path = ocr_path
+
+        # 读取合并后的内容发给 AI
+        try:
+            with open(merged_path, 'r', encoding='utf-8') as f:
                 ocr_text = f.read()
         except Exception as e:
-            self.log_text.append(f"读取 OCR 结果失败: {e}")
+            self.log_text.append(f"读取合并结果失败: {e}")
             self.btn_smart.setEnabled(True)
             self.btn_stop.setEnabled(False)
             return
