@@ -787,6 +787,21 @@ class SettingsDialog(QDialog):
         api_layout.addWidget(self.api_status)
         layout.addWidget(api_group)
 
+        # === OCR 模式 ===
+        mode_group = QGroupBox("OCR 区域模式")
+        mode_layout = QVBoxLayout(mode_group)
+        mode_layout.addWidget(QLabel("自动模式：自动检测纯色区域 | 手动模式：手动框选区域"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("自动 OCR", "auto")
+        self.mode_combo.addItem("手动 OCR", "manual")
+        saved_mode = self.settings.get("ocr_mode", "auto")
+        for i in range(self.mode_combo.count()):
+            if self.mode_combo.itemData(i) == saved_mode:
+                self.mode_combo.setCurrentIndex(i)
+                break
+        mode_layout.addWidget(self.mode_combo)
+        layout.addWidget(mode_group)
+
         # === OCR 引擎 ===
         ocr_group = QGroupBox("OCR 引擎")
         ocr_layout = QVBoxLayout(ocr_group)
@@ -851,6 +866,7 @@ class SettingsDialog(QDialog):
             "api_url": self.api_url_edit.text().strip(),
             "model": self.model_edit.text().strip(),
             "ocr_engine": self.engine_combo.currentData(),
+            "ocr_mode": self.mode_combo.currentData(),
         }
 
     def _test_api(self):
@@ -985,12 +1001,71 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "完成", "缓存已清除")
 
 
+def detect_center_region(frame):
+    """检测帧中最大的纯色区域（背景杂乱，中间有纯色块如纸张/屏幕）。"""
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # 计算局部标准差（纯色区域标准差低）
+    ksize = max(15, min(h, w) // 30)
+    if ksize % 2 == 0:
+        ksize += 1
+    mean = cv2.blur(gray.astype(np.float32), (ksize, ksize))
+    sq_mean = cv2.blur((gray.astype(np.float32)) ** 2, (ksize, ksize))
+    local_std = np.sqrt(np.maximum(sq_mean - mean ** 2, 0))
+
+    # 用 Otsu 自适应阈值分离纯色和非纯色
+    std_u8 = np.clip(local_std / local_std.max() * 255, 0, 255).astype(np.uint8)
+    _, mask = cv2.threshold(std_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # 形态学清理：用较小的核，避免合并相邻区域
+    small_ksize = max(3, ksize // 3)
+    if small_ksize % 2 == 0:
+        small_ksize += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (small_ksize, small_ksize))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # 找轮廓，取面积最大的
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return (0.0, 0.25, 1.0, 0.5)
+
+    largest = max(contours, key=cv2.contourArea)
+    x, y, bw, bh = cv2.boundingRect(largest)
+
+    # 精确裁剪：逐行检查轮廓内实际方差，只保留真正纯色的行
+    contour_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(contour_mask, [largest], -1, 255, -1)
+    row_mean_std = []
+    for row in range(y, y + bh):
+        row_pixels = local_std[row, :][contour_mask[row, :] > 0]
+        if len(row_pixels) > 0:
+            row_mean_std.append(np.mean(row_pixels))
+        else:
+            row_mean_std.append(float('inf'))
+
+    # 用 Otsu 对行均值方差再做一次分割，只保留纯色行
+    if len(row_mean_std) > 1:
+        row_arr = np.array(row_mean_std)
+        row_u8 = np.clip(row_arr / row_arr.max() * 255, 0, 255).astype(np.uint8)
+        _, row_mask = cv2.threshold(row_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        pure_rows = np.where(row_mask > 0)[0]
+        if len(pure_rows) > 0:
+            y = y + pure_rows[0]
+            bh = pure_rows[-1] - pure_rows[0] + 1
+
+    # 返回相对比例：x=0, 宽度全宽
+    return (0.0, y / h, 1.0, bh / h)
+
+
 class FrameExtractorGUI(QMainWindow):
     DEFAULT_SETTINGS = {
         "api_key": "tp-cq9dewdbgrz61kbykhbjczg3rvz5zg4nvuluuweadljy8k5z",
         "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
         "model": "mimo-v2.5-pro",
         "ocr_engine": "auto",
+        "ocr_mode": "auto",
     }
 
     def __init__(self):
@@ -1125,22 +1200,40 @@ class FrameExtractorGUI(QMainWindow):
         self.worker.start()
 
     def _on_coarse_ready(self, sample_path):
-        """粗扫完成，弹出区域选择框（此时精扫继续后台运行）"""
-        self.log_text.append("\n粗扫完成，请选择 OCR 区域...")
-        try:
-            dialog = RegionSelectorDialog(sample_path, self)
-            if dialog.exec() == QDialog.Accepted:
-                self._region = dialog.region
-                if self._region:
+        """粗扫完成，根据模式自动检测或手动选择 OCR 区域"""
+        ocr_mode = self.settings.get("ocr_mode", "auto")
+
+        if ocr_mode == "auto":
+            self.log_text.append("\n粗扫完成，自动检测 OCR 区域...")
+            try:
+                frame = cv2.imread(sample_path)
+                if frame is not None:
+                    self._region = detect_center_region(frame)
                     self.log_text.append(
-                        f"已选定区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
+                        f"自动检测区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
                         f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
                 else:
-                    self.log_text.append("未画选区，将对全图 OCR")
-            else:
-                self.log_text.append("已跳过区域选择，将对全图 OCR")
-        except Exception as e:
-            self.log_text.append(f"区域选择失败: {e}，将对全图 OCR")
+                    self._region = None
+                    self.log_text.append("无法读取样本帧，将对全图 OCR")
+            except Exception as e:
+                self._region = None
+                self.log_text.append(f"自动检测失败: {e}，将对全图 OCR")
+        else:
+            self.log_text.append("\n粗扫完成，请手动选择 OCR 区域...")
+            try:
+                dialog = RegionSelectorDialog(sample_path, self)
+                if dialog.exec() == QDialog.Accepted:
+                    self._region = dialog.region
+                    if self._region:
+                        self.log_text.append(
+                            f"已选定区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
+                            f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
+                    else:
+                        self.log_text.append("未画选区，将对全图 OCR")
+                else:
+                    self.log_text.append("已跳过区域选择，将对全图 OCR")
+            except Exception as e:
+                self.log_text.append(f"区域选择失败: {e}，将对全图 OCR")
 
     def _on_smart_finished(self, success, msg):
         self.progress_bar.setValue(100 if success else self.progress_bar.value())
