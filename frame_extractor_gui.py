@@ -24,13 +24,14 @@ from PySide6.QtWidgets import (
     QMessageBox, QComboBox, QCheckBox
 )
 
-# Windows 下预导入 paddleocr，让 PaddleX 在主线程只初始化一次
-# 避免 worker 线程中 import paddle + from paddleocr 各触发一次 PaddleX 初始化导致冲突
+# Windows 下预导入 paddle + paddleocr，让 PaddleX 在主线程只初始化一次
+# 顺序很重要：先 paddle 再 paddleocr，避免循环依赖触发重复初始化
 if sys.platform == 'win32':
     try:
+        import paddle  # noqa: F401
         import paddleocr  # noqa: F401
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
 
 
 # --- OCR 引擎抽象层 ---
