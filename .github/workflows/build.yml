@@ -24,11 +24,23 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --noconfirm --onefile --windowed --name "帧提取工具" --icon=icon.ico frame_extractor_gui.py
+        pyinstaller frame_extractor.spec --noconfirm
 
-    - name: Upload artifact
+    - name: Setup Inno Setup
+      uses: Minionguyjpro/inno-setup-action@v1.2.2
+      with:
+        path: frame_extractor.iss
+
+    - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
-        name: 帧提取工具
+        name: 帧提取工具-exe
         path: dist/帧提取工具.exe
+        retention-days: 90
+
+    - name: Upload Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: 帧提取工具-安装程序
+        path: Output/帧提取工具_安装程序.exe
         retention-days: 90
