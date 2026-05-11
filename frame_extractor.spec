@@ -50,6 +50,14 @@ if sys.platform == 'win32':
         'pyyaml',
         'yaml',
         'tqdm',
+        # paddlex[ocr] 核心依赖（动态导入，PyInstaller 无法自动发现）
+        'aistudio_sdk',
+        'modelscope',
+        'huggingface_hub',
+        'ujson',
+        'colorlog',
+        'pydantic',
+        'ruamel.yaml',
     ])
 else:
     hidden_imports.extend([
