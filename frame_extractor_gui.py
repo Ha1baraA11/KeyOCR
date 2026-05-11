@@ -696,22 +696,15 @@ class AICleanupWorker(QThread):
                 "不要用文言文、书面语、成语堆砌，要用大白话。"
                 "OCR 有错字，你需要根据上下文纠正。\n\n"
                 "【格式要求】\n"
-                "- 一行最多 6 个字，可以是 2 个字、3 个字、4 个字、5 个字、6 个字\n"
-                "- 两行合起来不超过 12 个字\n"
-                "- 一句话如果超过 6 个字就拆成两行\n"
+                "- 最好一行就是完整的一句话\n"
+                "- 一行可以是任意字数，没有上限\n"
+                "- 但两行加在一起不能超过 12 个字\n"
                 "- 读起来像说话，有停顿感\n\n"
                 "【内容要求】\n"
                 "- 涉及\"橱窗\"的内容必须保留原文意思，一个字都不能改\n"
                 "- 其他内容可以自由改写，只要大意相近、能吸引人就行\n"
                 "- 可以加情绪、加画面感、加悬念\n"
                 "- 不要加任何编号、符号、标题、解释，只输出纯文字\n\n"
-                "【示例】\n"
-                "老狐狸们\n"
-                "盯上肉了\n"
-                "都想抢\n"
-                "没想到\n"
-                "半路杀出个\n"
-                "搅局的\n\n"
                 f"OCR 原文：\n{self.ocr_text}"
             )
 
@@ -1019,99 +1012,104 @@ class SettingsDialog(QDialog):
 
 
 def detect_center_region(frame):
-    """检测帧中最大的纯色区域（背景杂乱，中间有纯色块如纸张/屏幕）。"""
+    """检测帧中字幕卡片区域。
+
+    策略：用 Sobel 水平边缘找到字幕卡片的上下边界。
+    字幕卡片是纯色块，和复杂背景之间有极强的水平边缘。
+    只看横跨画面宽度 ≥50% 的边缘行（排除局部噪点）。
+    """
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # 计算局部标准差（纯色区域标准差低）
-    ksize = max(15, min(h, w) // 30)
-    if ksize % 2 == 0:
-        ksize += 1
-    mean = cv2.blur(gray.astype(np.float32), (ksize, ksize))
-    sq_mean = cv2.blur((gray.astype(np.float32)) ** 2, (ksize, ksize))
-    local_std = np.sqrt(np.maximum(sq_mean - mean ** 2, 0))
+    # Sobel 水平边缘
+    sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    abs_sobel = np.abs(sobel_y)
 
-    # 用 Otsu 自适应阈值分离纯色和非纯色
-    std_u8 = np.clip(local_std / local_std.max() * 255, 0, 255).astype(np.uint8)
-    _, mask = cv2.threshold(std_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # 只看中间 20%-80%
+    search_top = int(h * 0.20)
+    search_bottom = int(h * 0.80)
 
-    # 形态学清理：用较小的核，避免合并相邻区域
-    small_ksize = max(3, ksize // 3)
-    if small_ksize % 2 == 0:
-        small_ksize += 1
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (small_ksize, small_ksize))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    # 每行：统计边缘强度超过阈值的列数占比（横跨宽度）
+    row_threshold = np.percentile(abs_sobel, 80)
+    edge_width_ratio = np.mean(abs_sobel > row_threshold, axis=1)
 
-    # 找轮廓，取面积最大的
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
+    # 只保留横跨 ≥50% 宽度的行
+    wide_mask = edge_width_ratio >= 0.50
+    mid_mask = wide_mask[search_top:search_bottom]
+
+    # 聚类通过的行（间距 < 10px 的算一组）
+    passed_rows = np.where(mid_mask)[0] + search_top
+    if len(passed_rows) < 2:
         return (0.0, 0.25, 1.0, 0.5)
 
-    largest = max(contours, key=cv2.contourArea)
-    x, y, bw, bh = cv2.boundingRect(largest)
+    clusters = []
+    start = passed_rows[0]
+    for i in range(1, len(passed_rows)):
+        if passed_rows[i] - passed_rows[i-1] > 10:
+            clusters.append((start, passed_rows[i-1]))
+            start = passed_rows[i]
+    clusters.append((start, passed_rows[-1]))
 
-    # 精确裁剪：逐行检查轮廓内实际方差，只保留真正纯色的行
-    contour_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.drawContours(contour_mask, [largest], -1, 255, -1)
-    row_mean_std = []
-    for row in range(y, y + bh):
-        row_pixels = local_std[row, :][contour_mask[row, :] > 0]
-        if len(row_pixels) > 0:
-            row_mean_std.append(np.mean(row_pixels))
-        else:
-            row_mean_std.append(float('inf'))
+    # 取每个聚类的中心线和综合得分（宽度比 × 边缘强度）
+    cluster_info = []
+    for c_start, c_end in clusters:
+        center = (c_start + c_end) // 2
+        max_ratio = np.max(edge_width_ratio[c_start:c_end+1])
+        mean_strength = np.mean(abs_sobel[c_start:c_end+1, :])
+        score = max_ratio * mean_strength
+        cluster_info.append((center, score))
 
-    # 用 Otsu 对行均值方差再做一次分割，只保留纯色行
-    if len(row_mean_std) > 1:
-        row_arr = np.array(row_mean_std)
-        row_u8 = np.clip(row_arr / row_arr.max() * 255, 0, 255).astype(np.uint8)
-        _, row_mask = cv2.threshold(row_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        pure_rows = np.where(row_mask > 0)[0]
-        if len(pure_rows) > 0:
-            y = y + pure_rows[0]
-            bh = pure_rows[-1] - pure_rows[0] + 1
+    if len(cluster_info) < 2:
+        return (0.0, 0.25, 1.0, 0.5)
 
-    # 返回相对比例：x=0, 宽度全宽
-    return (0.0, y / h, 1.0, bh / h)
+    # 按综合得分排序，选最强的两个
+    cluster_info.sort(key=lambda x: x[1], reverse=True)
+    top_edge = min(cluster_info[0][0], cluster_info[1][0])
+    bottom_edge = max(cluster_info[0][0], cluster_info[1][0])
+
+    if bottom_edge - top_edge < 10:
+        return (0.0, 0.25, 1.0, 0.5)
+
+    return (0.0, top_edge / h, 1.0, (bottom_edge - top_edge) / h)
 
 
-def detect_stable_region(frames_dir, sample_count=8):
-    """从粗扫帧目录多帧采样，取中位数区域，避免单帧偏差。
+def detect_stable_region(frames_dir, sample_count=16):
+    """从帧目录多帧采样，投票取最稳定区域。
 
-    优先密集采样前段帧（前 25%），若全部异常则回退到全范围采样。
+    多数帧会给出正确结果，少数帧误检。用聚类投票选出正确结果。
     """
     files = sorted([f for f in os.listdir(frames_dir)
                     if f.startswith("frame_") and f.endswith(".png")])
     if not files:
         return (0.0, 0.25, 1.0, 0.5)
 
-    def _sample(file_list):
-        step = max(1, len(file_list) // sample_count)
-        sampled = file_list[::step][:sample_count]
-        regions = []
-        for fname in sampled:
-            frame = cv2.imread(os.path.join(frames_dir, fname))
-            if frame is not None:
-                regions.append(detect_center_region(frame))
-        return regions
+    step = max(1, len(files) // sample_count)
+    sampled = files[::step][:sample_count]
 
-    # 优先采样前 25% 的帧
-    early = files[:max(1, len(files) // 4)]
-    regions = _sample(early)
-    good = [r for r in regions if 0.20 <= r[3] <= 0.40]
+    regions = []
+    for fname in sampled:
+        frame = cv2.imread(os.path.join(frames_dir, fname))
+        if frame is not None:
+            r = detect_center_region(frame)
+            if 0.05 <= r[3] <= 0.50:
+                regions.append(r)
 
-    if len(good) < 2:
-        # 前段帧不够，扩大到全范围
-        regions = _sample(files)
-        good = [r for r in regions if 0.20 <= r[3] <= 0.40]
+    if len(regions) < 2:
+        return (0.0, 0.25, 1.0, 0.5)
 
-    if not good:
-        good = regions  # 全部异常时不过滤
+    # 按 y 值聚类（间距 < 0.10 算一组）
+    regions.sort(key=lambda r: r[1])
+    groups = [[regions[0]]]
+    for r in regions[1:]:
+        if r[1] - groups[-1][-1][1] < 0.10:
+            groups[-1].append(r)
+        else:
+            groups.append([r])
 
-    # 取中位数
-    ys = sorted([r[1] for r in good])
-    hs = sorted([r[3] for r in good])
+    # 选最大的组
+    largest = max(groups, key=len)
+    ys = sorted([r[1] for r in largest])
+    hs = sorted([r[3] for r in largest])
     return (0.0, ys[len(ys) // 2], 1.0, hs[len(hs) // 2])
 
 
@@ -1285,7 +1283,6 @@ class FrameExtractorGUI(QMainWindow):
         self.worker = SmartExtractWorker(video_path, self.output_path, 9, 0.3)
         self.worker.progress.connect(self._on_progress)
         self.worker.log.connect(self._on_log)
-        self.worker.coarse_ready.connect(self._on_coarse_ready)
         self.worker.finished.connect(self._on_smart_finished)
         self.worker.start()
 
@@ -1344,18 +1341,21 @@ class FrameExtractorGUI(QMainWindow):
         self.worker = SmartExtractWorker(self.video_path, self.output_path, 9, 0.3)
         self.worker.progress.connect(self._on_progress)
         self.worker.log.connect(self._on_log)
-        self.worker.coarse_ready.connect(self._on_coarse_ready)
         self.worker.finished.connect(self._on_smart_finished)
         self.worker.start()
 
-    def _on_coarse_ready(self, coarse_dir):
-        """粗扫完成，根据模式自动检测或手动选择 OCR 区域"""
+    def _detect_region_from_selected(self):
+        """从最终提取帧中检测 OCR 区域（粗扫帧和提取帧不同，必须用提取帧检测）"""
+        selected_dir = os.path.join(self.output_path, "selected")
+        if not os.path.isdir(selected_dir):
+            selected_dir = self.output_path
+
         ocr_mode = self.settings.get("ocr_mode", "auto")
 
         if ocr_mode == "auto":
-            self.log_text.append("\n粗扫完成，自动检测 OCR 区域...")
+            self.log_text.append("\n自动检测 OCR 区域...")
             try:
-                self._region = detect_stable_region(coarse_dir)
+                self._region = detect_stable_region(selected_dir)
                 self.log_text.append(
                     f"自动检测区域: x={self._region[0]:.2f} y={self._region[1]:.2f} "
                     f"w={self._region[2]:.2f} h={self._region[3]:.2f}")
@@ -1363,12 +1363,11 @@ class FrameExtractorGUI(QMainWindow):
                 self._region = None
                 self.log_text.append(f"自动检测失败: {e}，将对全图 OCR")
         else:
-            self.log_text.append("\n粗扫完成，请手动选择 OCR 区域...")
+            self.log_text.append("\n请选择 OCR 区域...")
             try:
-                # 手动模式：取第一帧作为预览
-                files = sorted([f for f in os.listdir(coarse_dir)
+                files = sorted([f for f in os.listdir(selected_dir)
                                 if f.startswith("frame_") and f.endswith(".png")])
-                sample_path = os.path.join(coarse_dir, files[0]) if files else None
+                sample_path = os.path.join(selected_dir, files[0]) if files else None
                 if sample_path:
                     dialog = RegionSelectorDialog(sample_path, self)
                     if dialog.exec() == QDialog.Accepted:
@@ -1382,7 +1381,7 @@ class FrameExtractorGUI(QMainWindow):
                     else:
                         self.log_text.append("已跳过区域选择，将对全图 OCR")
                 else:
-                    self.log_text.append("无粗扫帧，将对全图 OCR")
+                    self.log_text.append("无提取帧，将对全图 OCR")
             except Exception as e:
                 self.log_text.append(f"区域选择失败: {e}，将对全图 OCR")
 
@@ -1395,7 +1394,8 @@ class FrameExtractorGUI(QMainWindow):
             self.btn_stop.setEnabled(False)
             return
 
-        # 智能提取完成，自动开始批量 OCR
+        # 智能提取完成，从提取帧检测区域后开始 OCR
+        self._detect_region_from_selected()
         self._start_ocr()
 
     def _start_ocr(self):

@@ -9,10 +9,11 @@ import sys
 
 
 def detect_center_region(frame):
-    """检测帧中最大的纯色区域。
+    """检测帧中字幕卡片区域。
 
-    策略：背景杂乱但中间有纯色块（纸张/屏幕），
-    通过局部方差检测低方差区域，找到最大的纯色块。
+    策略：用 Sobel 水平边缘找到字幕卡片的上下边界。
+    字幕卡片是纯色块，和复杂背景之间有极强的水平边缘。
+    只看横跨画面宽度 ≥50% 的边缘行（排除局部噪点）。
 
     Returns:
         (x, y, w, h) 框选区域（像素坐标）
@@ -20,63 +21,62 @@ def detect_center_region(frame):
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # 计算局部标准差（纯色区域标准差低）
-    ksize = max(15, min(h, w) // 30)
-    if ksize % 2 == 0:
-        ksize += 1
-    mean = cv2.blur(gray.astype(np.float32), (ksize, ksize))
-    sq_mean = cv2.blur((gray.astype(np.float32)) ** 2, (ksize, ksize))
-    local_std = np.sqrt(np.maximum(sq_mean - mean ** 2, 0))
+    # Sobel 水平边缘
+    sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    abs_sobel = np.abs(sobel_y)
 
-    # 用 Otsu 自适应阈值分离纯色和非纯色
-    std_u8 = np.clip(local_std / local_std.max() * 255, 0, 255).astype(np.uint8)
-    _, mask = cv2.threshold(std_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # 只看中间 20%-80%
+    search_top = int(h * 0.20)
+    search_bottom = int(h * 0.80)
 
-    # 形态学清理：用较小的核，避免合并相邻区域
-    small_ksize = max(3, ksize // 3)
-    if small_ksize % 2 == 0:
-        small_ksize += 1
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (small_ksize, small_ksize))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    # 每行：统计边缘强度超过阈值的列数占比（横跨宽度）
+    row_threshold = np.percentile(abs_sobel, 80)
+    edge_width_ratio = np.mean(abs_sobel > row_threshold, axis=1)
 
-    # 找轮廓，取面积最大的
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
+    # 只保留横跨 ≥50% 宽度的行
+    wide_mask = edge_width_ratio >= 0.50
+    mid_mask = wide_mask[search_top:search_bottom]
+
+    # 聚类通过的行（间距 < 10px 的算一组）
+    passed_rows = np.where(mid_mask)[0] + search_top
+    if len(passed_rows) < 2:
         return (0, int(h * 0.25), w, int(h * 0.5))
 
-    largest = max(contours, key=cv2.contourArea)
-    x, y, bw, bh = cv2.boundingRect(largest)
+    clusters = []
+    start = passed_rows[0]
+    for i in range(1, len(passed_rows)):
+        if passed_rows[i] - passed_rows[i-1] > 10:
+            clusters.append((start, passed_rows[i-1]))
+            start = passed_rows[i]
+    clusters.append((start, passed_rows[-1]))
 
-    # 精确裁剪：逐行检查轮廓内实际方差，只保留真正纯色的行
-    contour_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.drawContours(contour_mask, [largest], -1, 255, -1)
-    row_mean_std = []
-    for row in range(y, y + bh):
-        row_pixels = local_std[row, :][contour_mask[row, :] > 0]
-        if len(row_pixels) > 0:
-            row_mean_std.append(np.mean(row_pixels))
-        else:
-            row_mean_std.append(float('inf'))
+    # 取每个聚类的中心线和综合得分（宽度比 × 边缘强度）
+    cluster_info = []
+    for c_start, c_end in clusters:
+        center = (c_start + c_end) // 2
+        max_ratio = np.max(edge_width_ratio[c_start:c_end+1])
+        mean_strength = np.mean(abs_sobel[c_start:c_end+1, :])
+        score = max_ratio * mean_strength
+        cluster_info.append((center, score))
 
-    # 用 Otsu 对行均值方差再做一次分割，只保留纯色行
-    if len(row_mean_std) > 1:
-        row_arr = np.array(row_mean_std)
-        row_u8 = np.clip(row_arr / row_arr.max() * 255, 0, 255).astype(np.uint8)
-        _, row_mask = cv2.threshold(row_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        pure_rows = np.where(row_mask > 0)[0]
-        if len(pure_rows) > 0:
-            y = y + pure_rows[0]
-            bh = pure_rows[-1] - pure_rows[0] + 1
+    if len(cluster_info) < 2:
+        return (0, int(h * 0.25), w, int(h * 0.5))
 
-    # 宽度取全宽
-    return (0, y, w, bh)
+    # 按综合得分排序，选最强的两个
+    cluster_info.sort(key=lambda x: x[1], reverse=True)
+    top_edge = min(cluster_info[0][0], cluster_info[1][0])
+    bottom_edge = max(cluster_info[0][0], cluster_info[1][0])
+
+    if bottom_edge - top_edge < 10:
+        return (0, int(h * 0.25), w, int(h * 0.5))
+
+    return (0, top_edge, w, bottom_edge - top_edge)
 
 
-def detect_stable_region(video_path, coarse_fps=9, sample_count=8):
-    """从视频多帧采样，取中位数区域，避免单帧偏差。
+def detect_stable_region(video_path, coarse_fps=9, sample_count=16):
+    """从视频多帧采样，投票取最稳定区域。
 
-    优先密集采样前段帧（前 25%），若全部异常则回退到全范围采样。
+    多数帧会给出正确结果，少数帧误检。用聚类投票选出正确结果。
 
     Returns:
         (x, y, w, h) 框选区域（像素坐标）
@@ -88,45 +88,41 @@ def detect_stable_region(video_path, coarse_fps=9, sample_count=8):
     fps = cap.get(cv2.CAP_PROP_FPS)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     interval = max(1, int(fps / coarse_fps))
     coarse_total = total // interval
 
-    def _sample(frame_indices):
-        regions = []
-        for idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = cap.read()
-            if not ret:
-                break
-            regions.append(detect_center_region(frame))
-        return regions
+    step = max(1, coarse_total // sample_count)
+    indices = [i * interval for i in range(0, coarse_total, step)][:sample_count]
 
-    # 优先采样前 25% 的粗扫帧
-    early_count = max(1, coarse_total // 4)
-    step = max(1, early_count // sample_count)
-    early_indices = [i * interval for i in range(0, early_count, step)][:sample_count]
-    regions = _sample(early_indices)
-    good = [r for r in regions if 0.20 <= r[3] / frame_h <= 0.40]
-
-    if len(good) < 2:
-        # 前段帧不够，扩大到全范围
-        step2 = max(1, coarse_total // sample_count)
-        all_indices = [i * interval for i in range(0, coarse_total, step2)][:sample_count]
-        regions = _sample(all_indices)
-        good = [r for r in regions if 0.20 <= r[3] / frame_h <= 0.40]
-
+    regions = []
+    for idx in indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if not ret:
+            break
+        r = detect_center_region(frame)
+        if 0.05 <= r[3] / frame_h <= 0.50:
+            regions.append(r)
     cap.release()
 
-    if not good:
-        good = regions
-    if not good:
-        return (0, int(frame_h * 0.25), int(frame_h * 0.5))
+    if len(regions) < 2:
+        return (0, int(frame_h * 0.25), frame_w, int(frame_h * 0.5))
 
-    # 取中位数
-    ys = sorted([r[1] for r in good])
-    bhs = sorted([r[3] for r in good])
-    _, _, w, _ = good[0]
-    return (0, ys[len(ys) // 2], w, bhs[len(bhs) // 2])
+    # 按 y 值聚类（间距 < 10% 帧高度算一组）
+    regions.sort(key=lambda r: r[1])
+    threshold = frame_h * 0.10
+    groups = [[regions[0]]]
+    for r in regions[1:]:
+        if r[1] - groups[-1][-1][1] < threshold:
+            groups[-1].append(r)
+        else:
+            groups.append([r])
+
+    largest = max(groups, key=len)
+    ys = sorted([r[1] for r in largest])
+    bhs = sorted([r[3] for r in largest])
+    return (0, ys[len(ys) // 2], frame_w, bhs[len(bhs) // 2])
 
 
 def main():
