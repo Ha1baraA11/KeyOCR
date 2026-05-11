@@ -1126,6 +1126,10 @@ class FrameExtractorGUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("帧提取工具")
         self.setMinimumSize(640, 520)
+        icon_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(__file__)), 'icon.ico')
+        if os.path.exists(icon_path):
+            from PySide6.QtGui import QIcon
+            self.setWindowIcon(QIcon(icon_path))
         self.worker = None
         self._qsettings = QSettings("ZhenTiqu", "FrameExtractor")
         self.settings = self._load_settings()
