@@ -36,8 +36,20 @@ if sys.platform == 'win32':
         'paddle.utils',
         'paddle.utils.image_util',
 
-        # --- PaddleOCR ---
+        # --- PaddleOCR + PaddleX (3.x 依赖 paddlex) ---
         'paddleocr',
+        'paddlex',
+        'paddlex.inference',
+        'paddlex.inference.models',
+        'paddlex.inference.models.utils',
+        'paddlex.inference.models.utils.model_config',
+        'paddlex.inference.utils',
+        'paddlex.inference.utils.official_models',
+        'paddlex.inference.utils.io',
+        'paddlex.inference.utils.io.readers',
+
+        # --- pandas (paddlex.readers 依赖) ---
+        'pandas',
 
         # --- PaddleOCR runtime deps ---
         'shapely',
@@ -93,7 +105,6 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'matplotlib',
-        'pandas',
         'tkinter',
     ],
     win_no_prefer_redirects=False,
