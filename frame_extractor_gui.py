@@ -99,8 +99,9 @@ class PaddleOCREngine:
             raise RuntimeError("paddle/paddleocr 预导入失败，无法初始化 GPU OCR")
         use_gpu = paddle.device.is_compiled_with_cuda()
         try:
-            self._engine = paddleocr.PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
-                                                show_log=False)
+            # PaddleOCR 3.x API: use_angle_cls → use_textline_orientation,
+            # show_log/use_gpu 已移除
+            self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
         except Exception:
             PaddleOCREngine._instance = None
             raise
