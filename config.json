@@ -1,8 +1,0 @@
-{
-  "api_key": "tp-c5pwduj1aeie5luhcld7abut4p95lgvvuyvwh02vi19bb8ez",
-  "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
-  "model": "mimo-v2.5-pro",
-  "ocr_engine": "auto",
-  "ocr_mode": "auto",
-  "auto_cleanup": "false"
-}

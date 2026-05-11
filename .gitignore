@@ -19,10 +19,16 @@ wheels/
 .installed.cfg
 *.egg
 *.manifest
-*.spec
-*.bat
 .DS_Store
 .claude/
 *.mp4
 *.avi
 *.mov
+
+# 项目输出和缓存
+cache/
+config.json
+first_frame.png
+*.png
+!icon.ico
+!帧提取LOGO.png
