@@ -13,7 +13,7 @@ import time
 import cv2
 import numpy as np
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QPoint, QRect, QUrl
+from PySide6.QtCore import Qt, QThread, Signal, QPoint, QRect, QUrl, QSettings
 from PySide6.QtGui import QFont, QPixmap, QImage, QPainter, QPen, QColor, QCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -1127,8 +1127,21 @@ class FrameExtractorGUI(QMainWindow):
         self.setWindowTitle("帧提取工具")
         self.setMinimumSize(640, 520)
         self.worker = None
-        self.settings = dict(self.DEFAULT_SETTINGS)
+        self._qsettings = QSettings("ZhenTiqu", "FrameExtractor")
+        self.settings = self._load_settings()
         self._init_ui()
+
+    def _load_settings(self):
+        s = dict(self.DEFAULT_SETTINGS)
+        for key in s:
+            val = self._qsettings.value(key)
+            if val is not None:
+                s[key] = val
+        return s
+
+    def _save_settings(self):
+        for key, val in self.settings.items():
+            self._qsettings.setValue(key, val)
 
     def _init_ui(self):
         central = QWidget()
@@ -1200,6 +1213,7 @@ class FrameExtractorGUI(QMainWindow):
         dialog = SettingsDialog(self.settings, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self.settings = dialog.get_settings()
+            self._save_settings()
             self.log_text.append("设置已保存")
 
     def _select_video(self):
