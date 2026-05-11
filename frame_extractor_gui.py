@@ -36,34 +36,19 @@ class OCREngine:
         engine_type: "auto" | "cpu" | "gpu"
         auto: Mac 用 RapidOCR, Windows 用 PaddleOCR
         cpu: 强制用 RapidOCR
-        gpu: 强制用 PaddleOCR
+        gpu: 强制用 PaddleOCR，失败则降级到 RapidOCR
         """
         if engine_type == "auto":
             engine_type = "gpu" if sys.platform == "win32" else "cpu"
 
         if engine_type == "gpu":
-            return PaddleOCREngine()
+            try:
+                return PaddleOCREngine()
+            except Exception as e:
+                print(f"[OCR] PaddleOCR 初始化失败 ({e})，降级到 RapidOCR", file=sys.stderr)
+                return RapidOCREngine()
         else:
             return RapidOCREngine()
-
-    @staticmethod
-    def available_engines():
-        engines = []
-        try:
-            from rapidocr import RapidOCR
-            engines.append(("rapidocr", "RapidOCR (CPU)"))
-        except ImportError:
-            pass
-        try:
-            from paddleocr import PaddleOCR
-            import paddle
-            gpu = paddle.device.is_compiled_with_cuda()
-            label = "PaddleOCR (GPU)" if gpu else "PaddleOCR (CPU)"
-            engines.append(("paddleocr", label))
-        except ImportError:
-            pass
-        return engines
-
 
 class RapidOCREngine:
     def __init__(self):
@@ -92,26 +77,41 @@ class PaddleOCREngine:
     def __init__(self):
         if self._engine is not None:
             return
-        from paddleocr import PaddleOCR
         import paddle
         use_gpu = paddle.device.is_compiled_with_cuda()
-        self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
-                                  show_log=False)
+        try:
+            from paddleocr import PaddleOCR
+            self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
+                                      show_log=False)
+        except (RuntimeError, SystemExit) as e:
+            if "already been initialized" in str(e).lower():
+                import importlib
+                import paddleocr
+                importlib.reload(paddleocr)
+                from paddleocr import PaddleOCR
+                self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
+                                          show_log=False)
+            else:
+                PaddleOCREngine._instance = None
+                raise
+        except Exception:
+            PaddleOCREngine._instance = None
+            raise
         self.name = "PaddleOCR (GPU)" if use_gpu else "PaddleOCR (CPU)"
 
     def ocr(self, img_input):
         """img_input: 图片路径(str) 或 numpy 数组
         返回: (texts: list[str], scores: list[float])"""
-        if isinstance(img_input, str):
-            result = self._engine.ocr(img_input)
-        else:
-            result = self._engine.ocr(img_input)
+        result = self._engine.ocr(img_input)
         texts, scores = [], []
         if result and result[0]:
             for line in result[0]:
-                box, (text, score) = line
-                texts.append(text)
-                scores.append(score)
+                try:
+                    box, (text, score) = line
+                    texts.append(text)
+                    scores.append(score)
+                except (ValueError, TypeError):
+                    pass
         return texts, scores
 
 
@@ -486,6 +486,8 @@ class SmartExtractWorker(QThread):
 
         except Exception as e:
             self.finished.emit(False, f"错误: {e}")
+        finally:
+            _cleanup_safe_path(self._safe_tmp)
 
     @staticmethod
     def _write_frame(path, frame):
@@ -713,6 +715,11 @@ class BatchOCRWorker(QThread):
                 fpath = os.path.join(self.input_dir, fname)
                 if self.region:
                     img = _read_frame(fpath)
+                    if img is None:
+                        self.log.emit(f"[{i+1}/{len(files)}] {fname}: 读取失败，跳过")
+                        results.append(f"=== {fname} ===\n(读取失败)")
+                        self.progress.emit(i + 1, len(files))
+                        continue
                     h, w = img.shape[:2]
                     rx, ry, rw, rh = self.region
                     x1, y1 = int(rx * w), int(ry * h)
@@ -1029,6 +1036,8 @@ class SettingsDialog(QDialog):
                 return False, f"PaddlePaddle {paddle.__version__} (仅 CPU，需安装 paddlepaddle-gpu)"
         except ImportError:
             return False, "未安装，请运行: pip install paddlepaddle-gpu"
+        except Exception as e:
+            return False, f"检测失败: {e}"
 
     def _check_cuda(self):
         try:
@@ -1624,8 +1633,6 @@ class FrameExtractorGUI(QMainWindow):
 
         if success and self.settings.get("auto_cleanup", "false") == "true":
             self._auto_cleanup_output()
-
-        # 批处理模式：自动处理下一个视频
 
         # 批处理模式：自动处理下一个视频
         if getattr(self, '_is_batch', False):
