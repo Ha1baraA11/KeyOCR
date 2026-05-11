@@ -32,13 +32,15 @@ class OCREngine:
     @staticmethod
     def create(engine_type="auto"):
         """
-        engine_type: "auto" | "rapidocr" | "paddleocr"
-        auto: Mac 用 RapidOCR, Windows 用 PaddleOCR+GPU
+        engine_type: "auto" | "cpu" | "gpu"
+        auto: Mac 用 RapidOCR, Windows 用 PaddleOCR
+        cpu: 强制用 RapidOCR
+        gpu: 强制用 PaddleOCR
         """
         if engine_type == "auto":
-            engine_type = "paddleocr" if sys.platform == "win32" else "rapidocr"
+            engine_type = "gpu" if sys.platform == "win32" else "cpu"
 
-        if engine_type == "paddleocr":
+        if engine_type == "gpu":
             return PaddleOCREngine()
         else:
             return RapidOCREngine()
@@ -675,7 +677,7 @@ class AICleanupWorker(QThread):
     finished = Signal(bool, str)
 
     API_URL = "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"
-    API_KEY = "tp-cq9dewdbgrz61kbykhbjczg3rvz5zg4nvuluuweadljy8k5z"
+    API_KEY = ""
     MODEL = "mimo-v2.5-pro"
 
     def __init__(self, ocr_text, output_path):
@@ -802,12 +804,10 @@ class SettingsDialog(QDialog):
         # === OCR 引擎 ===
         ocr_group = QGroupBox("OCR 引擎")
         ocr_layout = QVBoxLayout(ocr_group)
-        ocr_layout.addWidget(QLabel("选择 OCR 引擎（auto = 根据系统自动选择）"))
         self.engine_combo = QComboBox()
-        self.engine_combo.addItem("auto (自动选择)", "auto")
-        available = OCREngine.available_engines()
-        for key, label in available:
-            self.engine_combo.addItem(label, key)
+        self.engine_combo.addItem("自动选择", "auto")
+        self.engine_combo.addItem("CPU (RapidOCR)", "cpu")
+        self.engine_combo.addItem("GPU (PaddleOCR)", "gpu")
         # 恢复上次选择
         saved_engine = self.settings.get("ocr_engine", "auto")
         for i in range(self.engine_combo.count()):
@@ -815,7 +815,7 @@ class SettingsDialog(QDialog):
                 self.engine_combo.setCurrentIndex(i)
                 break
         ocr_layout.addWidget(self.engine_combo)
-        ocr_layout.addWidget(QLabel("Mac: RapidOCR (CPU)  |  Windows: PaddleOCR (GPU)"))
+        ocr_layout.addWidget(QLabel("自动：Mac 用 CPU，Windows 用 GPU"))
         layout.addWidget(ocr_group)
 
         # === 环境检测 ===
@@ -1124,7 +1124,7 @@ def get_app_dir():
 
 class FrameExtractorGUI(QMainWindow):
     DEFAULT_SETTINGS = {
-        "api_key": "tp-cq9dewdbgrz61kbykhbjczg3rvz5zg4nvuluuweadljy8k5z",
+        "api_key": "",
         "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
         "model": "mimo-v2.5-pro",
         "ocr_engine": "auto",
