@@ -81,7 +81,17 @@ class RapidOCREngine:
 
 
 class PaddleOCREngine:
+    _instance = None
+    _engine = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        if self._engine is not None:
+            return
         from paddleocr import PaddleOCR
         import paddle
         use_gpu = paddle.device.is_compiled_with_cuda()
@@ -216,6 +226,35 @@ def _read_frame(path, flags=cv2.IMREAD_COLOR):
         return None
 
 
+def _safe_open_path(path):
+    """Windows 中文路径兼容：创建临时符号链接到纯英文路径，返回安全路径。
+    非 Windows 或纯 ASCII 路径直接返回原路径。"""
+    if sys.platform != 'win32' or path.isascii():
+        return path, None
+    import ctypes
+    tmp_dir = tempfile.mkdtemp(prefix="zt_")
+    ext = os.path.splitext(path)[1]
+    safe_link = os.path.join(tmp_dir, "file" + ext)
+    try:
+        os.symlink(path, safe_link)
+        return safe_link, tmp_dir
+    except OSError:
+        # symlink 需要权限，回退：用 8.3 短路径
+        buf = ctypes.create_unicode_buffer(512)
+        if ctypes.windll.kernel32.GetShortPathNameW(path, buf, 512):
+            return buf.value, None
+        return path, None
+
+
+def _cleanup_safe_path(tmp_dir):
+    """清理 _safe_open_path 创建的临时目录"""
+    if tmp_dir:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _compute_diffs(frames_dir, files):
     """计算一组帧文件的相邻帧差异，返回 diffs 数组"""
     diffs = []
@@ -323,10 +362,15 @@ class SmartExtractWorker(QThread):
         self.coarse_fps = coarse_fps
         self.margin_sec = margin_sec
         self._running = True
+        self._safe_video, self._safe_tmp = _safe_open_path(video_path)
+
+    def _open_video(self):
+        cap = cv2.VideoCapture(self._safe_video)
+        return cap
 
     def run(self):
         try:
-            cap = cv2.VideoCapture(self.video_path)
+            cap = self._open_video()
             if not cap.isOpened():
                 self.finished.emit(False, "无法打开视频文件")
                 return
@@ -417,7 +461,7 @@ class SmartExtractWorker(QThread):
             self.log.emit(f"找到 {len(stable_frames)} 个稳定帧")
 
             saved_frames = set()
-            cap = cv2.VideoCapture(self.video_path)
+            cap = self._open_video()
             for frame_no in stable_frames:
                 if frame_no not in saved_frames:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
@@ -459,7 +503,7 @@ class SmartExtractWorker(QThread):
 
     def _extract_frames(self, output_dir, interval, total_frames, video_fps):
         """从视频中按间隔截帧，返回保存的帧数"""
-        cap = cv2.VideoCapture(self.video_path)
+        cap = self._open_video()
         if not cap.isOpened():
             return 0
 
@@ -481,7 +525,7 @@ class SmartExtractWorker(QThread):
 
     def _extract_frames_range(self, output_dir, interval, start_frame, end_frame, video_fps, offset=0):
         """从视频的指定范围截帧"""
-        cap = cv2.VideoCapture(self.video_path)
+        cap = self._open_video()
         if not cap.isOpened():
             return 0
 
@@ -1268,6 +1312,11 @@ class FrameExtractorGUI(QMainWindow):
             self._save_settings()
             self.log_text.append("设置已保存")
 
+    def _open_video(self):
+        if not hasattr(self, '_safe_video'):
+            self._safe_video, self._safe_tmp = _safe_open_path(self.video_path)
+        return cv2.VideoCapture(self._safe_video)
+
     def _select_video(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "选择视频文件", "",
@@ -1278,7 +1327,9 @@ class FrameExtractorGUI(QMainWindow):
 
         if len(paths) == 1:
             # 单视频模式
+            _cleanup_safe_path(getattr(self, '_safe_tmp', None))
             self.video_path = paths[0]
+            self._safe_video, self._safe_tmp = _safe_open_path(paths[0])
             self.video_path_label.setText(paths[0])
             self.video_path_label.setStyleSheet("")
             cache_dir = os.path.join(get_app_dir(), "cache")
@@ -1326,7 +1377,9 @@ class FrameExtractorGUI(QMainWindow):
             return
 
         video_path = self._batch_videos[self._batch_index]
+        _cleanup_safe_path(getattr(self, '_safe_tmp', None))
         self.video_path = video_path
+        self._safe_video, self._safe_tmp = _safe_open_path(video_path)
         cache_dir = os.path.join(get_app_dir(), "cache")
         os.makedirs(cache_dir, exist_ok=True)
         self.output_path = os.path.join(cache_dir, Path(video_path).stem + "_frames")
@@ -1336,7 +1389,7 @@ class FrameExtractorGUI(QMainWindow):
         self.log_text.append(f"[{self._batch_index+1}/{self._batch_total}] {os.path.basename(video_path)}")
         self.log_text.append(f"{'='*40}")
 
-        cap = cv2.VideoCapture(video_path)
+        cap = self._open_video()
         if cap.isOpened():
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             vfps = cap.get(cv2.CAP_PROP_FPS)
@@ -1392,7 +1445,7 @@ class FrameExtractorGUI(QMainWindow):
         self._start_time = time.time()
         self._region = None
 
-        cap = cv2.VideoCapture(self.video_path)
+        cap = self._open_video()
         if cap.isOpened():
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             vfps = cap.get(cv2.CAP_PROP_FPS)
