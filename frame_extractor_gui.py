@@ -39,14 +39,22 @@ if sys.platform == 'win32':
             import paddle  # noqa: F401
             _PADDLE_READY = True
         except Exception as e:
-            err_msg = str(e)
-            if "DependencyError" in type(e).__name__ or "requires additional dependencies" in err_msg:
-                print(f"[启动] paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\"", file=sys.stderr)
-            else:
-                print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
+            # 注意：预导入只做 import，不会触发 DependencyError（那是 PaddleOCR() 创建时的错误）
+            print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
 
 
 # --- OCR 引擎抽象层 ---
+
+def _is_paddlex_dep_error(exc):
+    """检测异常是否为 paddlex 依赖缺失（DependencyError 可能是外层，也可能是 __cause__）"""
+    # 检查外层异常
+    if "DependencyError" in type(exc).__name__ or "requires additional dependencies" in str(exc):
+        return True
+    # 检查内层 cause（PaddleOCR 把 DependencyError 包装成 RuntimeError）
+    cause = getattr(exc, '__cause__', None) or getattr(exc, '__context__', None)
+    if cause and ("DependencyError" in type(cause).__name__ or "requires additional dependencies" in str(cause)):
+        return True
+    return False
 
 class OCREngine:
     """OCR 引擎：自动根据平台选择 RapidOCR (Mac) 或 PaddleOCR+GPU (Windows)"""
@@ -108,8 +116,8 @@ class PaddleOCREngine:
             self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
         except Exception as e:
             PaddleOCREngine._instance = None
-            # 检测 paddlex[ocr] 依赖缺失
-            if "DependencyError" in type(e).__name__ or "requires additional dependencies" in str(e):
+            # DependencyError 可能是外层异常，也可能是 __cause__（被 RuntimeError 包装）
+            if _is_paddlex_dep_error(e):
                 raise RuntimeError(
                     "paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\""
                 ) from e
