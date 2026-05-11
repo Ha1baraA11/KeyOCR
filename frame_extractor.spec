@@ -50,7 +50,7 @@ if sys.platform == 'win32':
         'pyyaml',
         'yaml',
         'tqdm',
-        # paddlex[ocr] 核心依赖（动态导入，PyInstaller 无法自动发现）
+        # paddlex[ocr] 核心依赖
         'aistudio_sdk',
         'modelscope',
         'huggingface_hub',
@@ -58,7 +58,31 @@ if sys.platform == 'win32':
         'colorlog',
         'pydantic',
         'ruamel.yaml',
+        # paddlex[ocr] extra 依赖
+        'safetensors',
+        'tokenizers',
+        'sentencepiece',
+        'tiktoken',
+        'einops',
+        'regex',
+        'ftfy',
+        'imagesize',
+        'Jinja2',
+        'lxml',
+        'openpyxl',
+        'pypdfium2',
+        'python_bidi',
+        'latex2mathml',
+        'premailer',
     ])
+
+    # 包含 paddlex/paddleocr 的包元数据，paddlex.utils.deps.require_extra 依赖它
+    from PyInstaller.utils.hooks import copy_metadata
+    for pkg in ['paddlex', 'paddleocr', 'paddle']:
+        try:
+            hidden_imports.extend(copy_metadata(pkg))
+        except Exception:
+            pass
 else:
     hidden_imports.extend([
         'rapidocr',
