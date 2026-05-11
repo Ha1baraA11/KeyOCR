@@ -38,7 +38,14 @@ if sys.platform == 'win32':
 
         # --- PaddleOCR + PaddleX (3.x 依赖 paddlex) ---
         'paddleocr',
+        'paddleocr._models',
+        'paddleocr._models.base',
+        'paddleocr._models.chart_parsing',
+        'paddleocr._models._doc_vlm',
         'paddlex',
+        'paddlex._initialize',
+        'paddlex.repo_manager',
+        'paddlex.repo_manager.core',
         'paddlex.inference',
         'paddlex.inference.models',
         'paddlex.inference.models.utils',
@@ -83,14 +90,20 @@ else:
         'rapidocr_onnxruntime',
     ])
 
-# 收集 paddle 原生二进制文件 (.dll/.pyd)
+# 收集 paddle/paddlex 原生二进制文件和数据文件
 extra_binaries = []
 extra_datas = []
 if sys.platform == 'win32':
     try:
         from PyInstaller.utils.hooks import collect_data_files, collect_binaries
-        extra_binaries = collect_binaries('paddle')
-        extra_datas = collect_data_files('paddle', include_py_files=False)
+        extra_binaries += collect_binaries('paddle')
+        extra_datas += collect_data_files('paddle', include_py_files=False)
+    except Exception:
+        pass
+    try:
+        from PyInstaller.utils.hooks import collect_data_files, collect_binaries
+        extra_binaries += collect_binaries('paddlex')
+        extra_datas += collect_data_files('paddlex', include_py_files=False)
     except Exception:
         pass
 
