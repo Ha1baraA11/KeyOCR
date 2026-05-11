@@ -203,12 +203,25 @@ def _find_transition_peaks(diffs, thresh_mult=1.5, min_dist_frames=7):
     return merged
 
 
+def _read_frame(path, flags=cv2.IMREAD_COLOR):
+    """读取帧图片，Windows 中文路径兼容"""
+    img = cv2.imread(path, flags)
+    if img is not None:
+        return img
+    try:
+        with open(path, 'rb') as f:
+            buf = np.frombuffer(f.read(), dtype=np.uint8)
+        return cv2.imdecode(buf, flags)
+    except Exception:
+        return None
+
+
 def _compute_diffs(frames_dir, files):
     """计算一组帧文件的相邻帧差异，返回 diffs 数组"""
     diffs = []
     prev_img = None
     for fname in files:
-        img = cv2.imread(os.path.join(frames_dir, fname), cv2.IMREAD_GRAYSCALE)
+        img = _read_frame(os.path.join(frames_dir, fname), cv2.IMREAD_GRAYSCALE)
         if img is None:
             diffs.append(0)
             continue
@@ -410,7 +423,7 @@ class SmartExtractWorker(QThread):
                     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
                     ret, frame = cap.read()
                     if ret:
-                        cv2.imwrite(os.path.join(selected_dir, f"frame_{frame_no:06d}.png"), frame)
+                        SmartExtractWorker._write_frame(os.path.join(selected_dir, f"frame_{frame_no:06d}.png"), frame)
                         saved_frames.add(frame_no)
             cap.release()
 
@@ -655,7 +668,7 @@ class BatchOCRWorker(QThread):
 
                 fpath = os.path.join(self.input_dir, fname)
                 if self.region:
-                    img = cv2.imread(fpath)
+                    img = _read_frame(fpath)
                     h, w = img.shape[:2]
                     rx, ry, rw, rh = self.region
                     x1, y1 = int(rx * w), int(ry * h)
@@ -1108,7 +1121,7 @@ def detect_stable_region(frames_dir, sample_count=16):
 
     regions = []
     for fname in sampled:
-        frame = cv2.imread(os.path.join(frames_dir, fname))
+        frame = _read_frame(os.path.join(frames_dir, fname))
         if frame is not None:
             r = detect_center_region(frame)
             if 0.05 <= r[3] <= 0.50:
