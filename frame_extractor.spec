@@ -15,50 +15,26 @@ hidden_imports = [
     'numpy',
 ]
 
-# Windows 特有依赖
+# Windows 特有依赖：自动收集 paddle/paddleocr/paddlex 全部子模块
 if sys.platform == 'win32':
+    from PyInstaller.utils.hooks import collect_submodules
+
+    # 自动发现所有子模块，比手动列举可靠
+    for pkg in ['paddle', 'paddleocr', 'paddlex']:
+        try:
+            hidden_imports.extend(collect_submodules(pkg))
+        except Exception:
+            pass
+
+    # 显式补充 PyInstaller 可能遗漏的关键模块
     hidden_imports.extend([
-        # --- PaddlePaddle core ---
-        'paddle',
-        'paddle.base',
-        'paddle.base.core',
-        'paddle.fluid',
-        'paddle.fluid.core',
-        'paddle.framework',
-        'paddle.device',
-        'paddle.io',
-        'paddle.nn',
-        'paddle.inference',
-        'paddle.static',
-        'paddle.amp',
-        'paddle._C_ops',
-        'paddle.version',
-        'paddle.utils',
-        'paddle.utils.image_util',
-
-        # --- PaddleOCR + PaddleX (3.x 依赖 paddlex) ---
-        'paddleocr',
-        'paddleocr._models',
-        'paddleocr._models.base',
-        'paddleocr._models.chart_parsing',
-        'paddleocr._models._doc_vlm',
-        'paddlex',
-        'paddlex._initialize',
-        'paddlex.repo_manager',
-        'paddlex.repo_manager.core',
-        'paddlex.inference',
-        'paddlex.inference.models',
-        'paddlex.inference.models.utils',
-        'paddlex.inference.models.utils.model_config',
-        'paddlex.inference.utils',
-        'paddlex.inference.utils.official_models',
-        'paddlex.inference.utils.io',
-        'paddlex.inference.utils.io.readers',
-
-        # --- pandas (paddlex.readers 依赖) ---
         'pandas',
-
-        # --- PaddleOCR runtime deps ---
+        'PIL',
+        'PIL.Image',
+        'google.protobuf',
+        'google.protobuf.descriptor',
+        'google.protobuf.internal',
+        'google.protobuf.message',
         'shapely',
         'pyclipper',
         'rapidfuzz',
@@ -73,16 +49,6 @@ if sys.platform == 'win32':
         'pyyaml',
         'yaml',
         'tqdm',
-
-        # --- Protobuf (PaddlePaddle 内部依赖) ---
-        'google.protobuf',
-        'google.protobuf.descriptor',
-        'google.protobuf.internal',
-        'google.protobuf.message',
-
-        # --- PIL ---
-        'PIL',
-        'PIL.Image',
     ])
 else:
     hidden_imports.extend([
@@ -90,22 +56,17 @@ else:
         'rapidocr_onnxruntime',
     ])
 
-# 收集 paddle/paddlex 原生二进制文件和数据文件
+# 收集原生二进制和数据文件
 extra_binaries = []
 extra_datas = []
 if sys.platform == 'win32':
-    try:
-        from PyInstaller.utils.hooks import collect_data_files, collect_binaries
-        extra_binaries += collect_binaries('paddle')
-        extra_datas += collect_data_files('paddle', include_py_files=False)
-    except Exception:
-        pass
-    try:
-        from PyInstaller.utils.hooks import collect_data_files, collect_binaries
-        extra_binaries += collect_binaries('paddlex')
-        extra_datas += collect_data_files('paddlex', include_py_files=False)
-    except Exception:
-        pass
+    from PyInstaller.utils.hooks import collect_data_files, collect_binaries
+    for pkg in ['paddle', 'paddleocr', 'paddlex']:
+        try:
+            extra_binaries += collect_binaries(pkg)
+            extra_datas += collect_data_files(pkg, include_py_files=False)
+        except Exception:
+            pass
 
 a = Analysis(
     ['frame_extractor_gui.py'],

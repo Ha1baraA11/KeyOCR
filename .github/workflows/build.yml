@@ -20,7 +20,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install PySide6 opencv-python numpy paddlepaddle paddleocr pyinstaller
+        pip install PySide6 opencv-python numpy pyinstaller
+        pip install paddlepaddle paddleocr
+        # paddleocr/paddlex 传递依赖（pip 可能不自动装全）
+        pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow
 
     - name: Build EXE
       run: |
