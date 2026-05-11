@@ -28,6 +28,7 @@ if sys.platform == 'win32':
 
     # 显式补充 PyInstaller 可能遗漏的关键模块
     hidden_imports.extend([
+        'requests',
         'pandas',
         'PIL',
         'PIL.Image',
