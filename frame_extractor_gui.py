@@ -36,17 +36,13 @@ class OCREngine:
         engine_type: "auto" | "cpu" | "gpu"
         auto: Mac 用 RapidOCR, Windows 用 PaddleOCR
         cpu: 强制用 RapidOCR
-        gpu: 强制用 PaddleOCR，失败则降级到 RapidOCR
+        gpu: 强制用 PaddleOCR
         """
         if engine_type == "auto":
             engine_type = "gpu" if sys.platform == "win32" else "cpu"
 
         if engine_type == "gpu":
-            try:
-                return PaddleOCREngine()
-            except Exception as e:
-                print(f"[OCR] PaddleOCR 初始化失败 ({e})，降级到 RapidOCR", file=sys.stderr)
-                return RapidOCREngine()
+            return PaddleOCREngine()
         else:
             return RapidOCREngine()
 
@@ -83,17 +79,6 @@ class PaddleOCREngine:
             from paddleocr import PaddleOCR
             self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
                                       show_log=False)
-        except (RuntimeError, SystemExit) as e:
-            if "already been initialized" in str(e).lower():
-                import importlib
-                import paddleocr
-                importlib.reload(paddleocr)
-                from paddleocr import PaddleOCR
-                self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
-                                          show_log=False)
-            else:
-                PaddleOCREngine._instance = None
-                raise
         except Exception:
             PaddleOCREngine._instance = None
             raise
@@ -746,7 +731,8 @@ class BatchOCRWorker(QThread):
             self.finished.emit(True, f"完成，已保存到 {os.path.basename(self.output_path)}")
 
         except Exception as e:
-            self.finished.emit(False, f"错误: {e}")
+            import traceback
+            self.finished.emit(False, f"错误: {e}\n{traceback.format_exc()}")
 
     def stop(self):
         self._running = False
