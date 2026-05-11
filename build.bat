@@ -34,9 +34,10 @@ if errorlevel 1 (
 
 echo [2/4] 安装 PaddleOCR（Windows 版）...
 pip install paddlepaddle paddleocr -q
+pip install "paddlex[ocr]" -q
 if errorlevel 1 (
     echo [警告] PaddleOCR 安装失败，OCR 功能可能不可用
-    echo         可稍后手动安装: pip install paddlepaddle paddleocr
+    echo         可稍后手动安装: pip install paddlepaddle paddleocr "paddlex[ocr]"
 )
 
 echo [3/4] 安装 PyInstaller...

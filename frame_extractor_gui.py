@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 # Windows 下预导入 paddle + paddleocr，让 PaddleX 在主线程只初始化一次
-# 如果先 paddle 再 paddleocr 失败（PaddleX 被 paddle 触发后冲突），
-# 则反转顺序：先 paddleocr 再 paddle
+# 仅做 import（不创建实例），PaddleX 的 import-time 初始化在主线程完成
+# PaddleOCR() 实例化在 PaddleOCREngine 中延迟执行
 _PADDLE_READY = False
 if sys.platform == 'win32':
     try:
@@ -39,7 +39,11 @@ if sys.platform == 'win32':
             import paddle  # noqa: F401
             _PADDLE_READY = True
         except Exception as e:
-            print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
+            err_msg = str(e)
+            if "DependencyError" in type(e).__name__ or "requires additional dependencies" in err_msg:
+                print(f"[启动] paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\"", file=sys.stderr)
+            else:
+                print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
 
 
 # --- OCR 引擎抽象层 ---
@@ -102,8 +106,13 @@ class PaddleOCREngine:
             # PaddleOCR 3.x API: use_angle_cls → use_textline_orientation,
             # show_log/use_gpu 已移除
             self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
-        except Exception:
+        except Exception as e:
             PaddleOCREngine._instance = None
+            # 检测 paddlex[ocr] 依赖缺失
+            if "DependencyError" in type(e).__name__ or "requires additional dependencies" in str(e):
+                raise RuntimeError(
+                    "paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\""
+                ) from e
             raise
         self.name = "PaddleOCR (GPU)" if use_gpu else "PaddleOCR (CPU)"
 
@@ -1056,10 +1065,17 @@ class SettingsDialog(QDialog):
         try:
             import paddle
             gpu = paddle.device.is_compiled_with_cuda()
-            if gpu:
-                return True, f"PaddlePaddle {paddle.__version__} (GPU)"
-            else:
+            if not gpu:
                 return False, f"PaddlePaddle {paddle.__version__} (仅 CPU，需安装 paddlepaddle-gpu)"
+            try:
+                import paddleocr  # noqa: F401
+            except ImportError:
+                return False, "PaddleOCR 未安装，请运行: pip install paddleocr"
+            try:
+                import paddlex  # noqa: F401
+            except ImportError:
+                return False, "paddlex 未安装，请运行: pip install paddlex[ocr]"
+            return True, f"PaddlePaddle {paddle.__version__} (GPU)"
         except ImportError:
             return False, "未安装，请运行: pip install paddlepaddle-gpu"
         except Exception as e:
