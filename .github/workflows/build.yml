@@ -23,7 +23,7 @@ jobs:
         pip install PySide6 opencv-python numpy pyinstaller
         pip install paddlepaddle paddleocr
         # paddleocr/paddlex 传递依赖（pip 可能不自动装全）
-        pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow
+        pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests
 
     - name: Build EXE
       run: |
