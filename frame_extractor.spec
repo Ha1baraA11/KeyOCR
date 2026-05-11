@@ -22,6 +22,10 @@ if sys.platform == 'win32':
         'paddleocr',
         'paddle.fluid',
         'paddle.fluid.core',
+        'paddle.utils',
+        'paddle.utils.image_util',
+        'PIL',
+        'PIL.Image',
     ])
 else:
     hidden_imports.extend([
@@ -42,7 +46,6 @@ a = Analysis(
         'matplotlib',
         'scipy',
         'pandas',
-        'PIL',
         'tkinter',
     ],
     win_no_prefer_redirects=False,
