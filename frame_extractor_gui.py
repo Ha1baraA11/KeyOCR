@@ -1239,7 +1239,7 @@ class FrameExtractorGUI(QMainWindow):
             # 单视频模式
             self.video_path = paths[0]
             self.video_path_label.setText(paths[0])
-            self.video_path_label.setStyleSheet("color: #111;")
+            self.video_path_label.setStyleSheet("color: #eee;")
             self.output_path = os.path.join(os.path.dirname(paths[0]),
                                             Path(paths[0]).stem + "_frames")
             self._is_batch = False
@@ -1250,7 +1250,7 @@ class FrameExtractorGUI(QMainWindow):
             self._batch_total = len(paths)
             self._is_batch = True
             self.video_path_label.setText(f"已选择 {len(paths)} 个视频（批处理模式）")
-            self.video_path_label.setStyleSheet("color: #111;")
+            self.video_path_label.setStyleSheet("color: #eee;")
 
     def _run_next_batch_video(self):
         """处理批处理队列中的下一个视频"""
