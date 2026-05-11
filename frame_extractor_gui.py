@@ -110,16 +110,33 @@ class PaddleOCREngine:
     def ocr(self, img_input):
         """img_input: 图片路径(str) 或 numpy 数组
         返回: (texts: list[str], scores: list[float])"""
-        result = self._engine.ocr(img_input)
         texts, scores = [], []
-        if result and result[0]:
-            for line in result[0]:
-                try:
-                    box, (text, score) = line
-                    texts.append(text)
-                    scores.append(score)
-                except (ValueError, TypeError):
-                    pass
+        try:
+            # PaddleOCR 3.x: predict() 返回 OCRResult 字典列表
+            result = self._engine.predict(img_input)
+            for res in result:
+                if hasattr(res, 'get'):
+                    rec_texts = res.get('rec_texts', [])
+                    rec_scores = res.get('rec_scores', [])
+                    texts.extend(rec_texts)
+                    scores.extend(rec_scores)
+                elif hasattr(res, 'rec_texts'):
+                    texts.extend(res.rec_texts)
+                    scores.extend(res.rec_scores)
+        except (AttributeError, TypeError):
+            # PaddleOCR 2.x 兼容: ocr() 返回 [(box, (text, score)), ...]
+            try:
+                result = self._engine.ocr(img_input)
+                if result and result[0]:
+                    for line in result[0]:
+                        try:
+                            box, (text, score) = line
+                            texts.append(text)
+                            scores.append(score)
+                        except (ValueError, TypeError):
+                            pass
+            except Exception:
+                pass
         return texts, scores
 
 
