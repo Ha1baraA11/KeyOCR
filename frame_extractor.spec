@@ -76,13 +76,6 @@ if sys.platform == 'win32':
         'premailer',
     ])
 
-    # 包含 paddlex/paddleocr 的包元数据，paddlex.utils.deps.require_extra 依赖它
-    from PyInstaller.utils.hooks import copy_metadata
-    for pkg in ['paddlex', 'paddleocr', 'paddle']:
-        try:
-            hidden_imports.extend(copy_metadata(pkg))
-        except Exception:
-            pass
 else:
     hidden_imports.extend([
         'rapidocr',
@@ -93,11 +86,17 @@ else:
 extra_binaries = []
 extra_datas = []
 if sys.platform == 'win32':
-    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
     for pkg in ['paddle', 'paddleocr', 'paddlex']:
         try:
             extra_binaries += collect_dynamic_libs(pkg)
             extra_datas += collect_data_files(pkg, include_py_files=False)
+        except Exception:
+            pass
+    # 包含 paddlex/paddleocr 的包元数据，paddlex.utils.deps.require_extra 依赖它
+    for pkg in ['paddlex', 'paddleocr', 'paddle']:
+        try:
+            extra_datas += copy_metadata(pkg)
         except Exception:
             pass
 
