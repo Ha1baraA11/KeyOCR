@@ -10,7 +10,7 @@
 - Python 3.12+（Windows GPU 需 3.9~3.12）
 - macOS ARM64 / Windows x64
 - 依赖：PySide6, opencv-python, numpy
-- OCR：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR (GPU 需 CUDA 11.8 + cuDNN)
+- OCR：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR (GPU 需 CUDA 11.8 + cuDNN + pandas)
 - 启动命令：`python frame_extractor_gui.py`
 
 ## Windows 中文路径兼容
