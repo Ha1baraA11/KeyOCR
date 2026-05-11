@@ -8,9 +8,14 @@
 
 ## 运行环境
 - Python 3.13
-- macOS ARM64
+- macOS ARM64 / Windows x64
 - 依赖：PySide6, opencv-python, numpy, rapidocr
 - 启动命令：`python frame_extractor_gui.py`
+
+## Windows 打包与安装
+- `pyinstaller frame_extractor.spec` 生成 exe
+- `frame_extractor.iss` — Inno Setup 安装脚本，支持选目录、桌面快捷方式
+- 安装后配置和缓存都在安装目录下（`config.json` 和 `cache/`）
 
 ## 项目结构
 - `frame_extractor_gui.py` — 主程序（GUI + 所有算法 + 批量 OCR + 区域检测）
@@ -27,9 +32,13 @@
 4. **设置** — API 配置、OCR 引擎、OCR 区域模式、清除缓存
 
 ## 设置持久化
-- 使用 `QSettings("ZhenTiqu", "FrameExtractor")` 持久化配置
-- Windows 存注册表，macOS 存 plist，重启不丢失
+- 配置存放在 exe 同目录的 `config.json`，JSON 格式
 - 启动时自动加载，点"保存"时自动写入
+- 开发环境和打包后行为一致
+
+## 输出目录
+- 提取的帧统一存放在 `{安装目录}/cache/{视频名}_frames/`
+- 清除缓存只扫描 `{安装目录}/cache/` 目录
 
 ## 批处理模式
 - 选择多个视频时自动开启批处理
