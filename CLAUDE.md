@@ -10,8 +10,14 @@
 - Python 3.12+（Windows GPU 需 3.9~3.12）
 - macOS ARM64 / Windows x64
 - 依赖：PySide6, opencv-python, numpy
-- OCR：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR (GPU 需 CUDA 11.8 + cuDNN)
+- OCR：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR (GPU 需 CUDA 11.8 + cuDNN + pandas)
 - 启动命令：`python frame_extractor_gui.py`
+
+## Windows 中文路径兼容
+OpenCV 在 Windows 上不支持非 ASCII 路径（中文目录/文件名）。代码通过以下方式兼容：
+- **读写帧图片**：`cv2.imwrite`/`cv2.imread` 失败时回退到 `cv2.imencode`/`cv2.imdecode` + Python 原生文件 IO
+- **打开视频文件**：`_safe_open_path()` 在 temp 目录创建符号链接（不复制文件），`cv2.VideoCapture` 通过链接访问
+- **PaddleOCR**：单例模式，只初始化一次，避免 "PDX already initialized" 错误
 
 ## Windows 打包与安装
 - `pyinstaller frame_extractor.spec` 生成 exe
