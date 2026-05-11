@@ -61,10 +61,10 @@ else:
 extra_binaries = []
 extra_datas = []
 if sys.platform == 'win32':
-    from PyInstaller.utils.hooks import collect_data_files, collect_binaries
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
     for pkg in ['paddle', 'paddleocr', 'paddlex']:
         try:
-            extra_binaries += collect_binaries(pkg)
+            extra_binaries += collect_dynamic_libs(pkg)
             extra_datas += collect_data_files(pkg, include_py_files=False)
         except Exception:
             pass
