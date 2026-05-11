@@ -8,6 +8,7 @@
 import sys
 import os
 import json
+import tempfile
 import shutil
 import platform
 import time
@@ -346,8 +347,10 @@ class SmartExtractWorker(QThread):
             # 通知 GUI 粗扫完成，可以开始选区域
             coarse_files = sorted([f for f in os.listdir(coarse_dir)
                                    if f.startswith("frame_") and f.endswith(".png")])
-            if coarse_files:
-                self.coarse_ready.emit(coarse_dir)
+            if not coarse_files:
+                self.finished.emit(False, "截帧文件写入失败，请检查路径是否含中文或特殊字符")
+                return
+            self.coarse_ready.emit(coarse_dir)
 
             # === 阶段2: 检测转换峰值 ===
             self.log.emit(f"\n{'='*40}")
@@ -427,6 +430,20 @@ class SmartExtractWorker(QThread):
         except Exception as e:
             self.finished.emit(False, f"错误: {e}")
 
+    @staticmethod
+    def _write_frame(path, frame):
+        """写入帧图片，Windows 中文路径兼容"""
+        if cv2.imwrite(path, frame):
+            return True
+        # Windows 中文路径回退：用 numpy + 文件 IO
+        try:
+            _, buf = cv2.imencode('.png', frame)
+            with open(path, 'wb') as f:
+                f.write(buf.tobytes())
+            return True
+        except Exception:
+            return False
+
     def _extract_frames(self, output_dir, interval, total_frames, video_fps):
         """从视频中按间隔截帧，返回保存的帧数"""
         cap = cv2.VideoCapture(self.video_path)
@@ -441,8 +458,8 @@ class SmartExtractWorker(QThread):
             if not ret:
                 break
             filename = f"frame_{frame_no:06d}.png"
-            cv2.imwrite(os.path.join(output_dir, filename), frame)
-            saved += 1
+            if self._write_frame(os.path.join(output_dir, filename), frame):
+                saved += 1
             self.progress.emit(frame_no + 1, total_frames)
             frame_no += interval
 
@@ -463,8 +480,8 @@ class SmartExtractWorker(QThread):
             if not ret:
                 break
             filename = f"frame_{frame_no:06d}.png"
-            cv2.imwrite(os.path.join(output_dir, filename), frame)
-            saved += 1
+            if self._write_frame(os.path.join(output_dir, filename), frame):
+                saved += 1
             frame_no += interval
 
         cap.release()
@@ -1250,7 +1267,7 @@ class FrameExtractorGUI(QMainWindow):
             # 单视频模式
             self.video_path = paths[0]
             self.video_path_label.setText(paths[0])
-            self.video_path_label.setStyleSheet("color: #eee;")
+            self.video_path_label.setStyleSheet("")
             cache_dir = os.path.join(get_app_dir(), "cache")
             os.makedirs(cache_dir, exist_ok=True)
             self.output_path = os.path.join(cache_dir, Path(paths[0]).stem + "_frames")
@@ -1262,7 +1279,7 @@ class FrameExtractorGUI(QMainWindow):
             self._batch_total = len(paths)
             self._is_batch = True
             self.video_path_label.setText(f"已选择 {len(paths)} 个视频（批处理模式）")
-            self.video_path_label.setStyleSheet("color: #eee;")
+            self.video_path_label.setStyleSheet("")
 
     def _run_next_batch_video(self):
         """处理批处理队列中的下一个视频"""
