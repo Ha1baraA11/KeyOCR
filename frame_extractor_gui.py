@@ -24,6 +24,14 @@ from PySide6.QtWidgets import (
     QMessageBox, QComboBox, QCheckBox
 )
 
+# Windows 下预导入 paddleocr，让 PaddleX 在主线程只初始化一次
+# 避免 worker 线程中 import paddle + from paddleocr 各触发一次 PaddleX 初始化导致冲突
+if sys.platform == 'win32':
+    try:
+        import paddleocr  # noqa: F401
+    except Exception:
+        pass
+
 
 # --- OCR 引擎抽象层 ---
 
@@ -74,11 +82,11 @@ class PaddleOCREngine:
         if self._engine is not None:
             return
         import paddle
+        import paddleocr
         use_gpu = paddle.device.is_compiled_with_cuda()
         try:
-            from paddleocr import PaddleOCR
-            self._engine = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
-                                      show_log=False)
+            self._engine = paddleocr.PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
+                                                show_log=False)
         except Exception:
             PaddleOCREngine._instance = None
             raise
