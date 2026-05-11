@@ -18,12 +18,50 @@ hidden_imports = [
 # Windows 特有依赖
 if sys.platform == 'win32':
     hidden_imports.extend([
+        # --- PaddlePaddle core ---
         'paddle',
-        'paddleocr',
+        'paddle.base',
+        'paddle.base.core',
         'paddle.fluid',
         'paddle.fluid.core',
+        'paddle.framework',
+        'paddle.device',
+        'paddle.io',
+        'paddle.nn',
+        'paddle.inference',
+        'paddle.static',
+        'paddle.amp',
+        'paddle._C_ops',
+        'paddle.version',
         'paddle.utils',
         'paddle.utils.image_util',
+
+        # --- PaddleOCR ---
+        'paddleocr',
+
+        # --- PaddleOCR runtime deps ---
+        'shapely',
+        'pyclipper',
+        'rapidfuzz',
+        'lmdb',
+        'skimage',
+        'skimage.io',
+        'skimage.transform',
+        'scipy',
+        'scipy.special',
+        'scipy.spatial',
+        'scipy.ndimage',
+        'pyyaml',
+        'yaml',
+        'tqdm',
+
+        # --- Protobuf (PaddlePaddle 内部依赖) ---
+        'google.protobuf',
+        'google.protobuf.descriptor',
+        'google.protobuf.internal',
+        'google.protobuf.message',
+
+        # --- PIL ---
         'PIL',
         'PIL.Image',
     ])
@@ -33,18 +71,28 @@ else:
         'rapidocr_onnxruntime',
     ])
 
+# 收集 paddle 原生二进制文件 (.dll/.pyd)
+extra_binaries = []
+extra_datas = []
+if sys.platform == 'win32':
+    try:
+        from PyInstaller.utils.hooks import collect_data_files, collect_binaries
+        extra_binaries = collect_binaries('paddle')
+        extra_datas = collect_data_files('paddle', include_py_files=False)
+    except Exception:
+        pass
+
 a = Analysis(
     ['frame_extractor_gui.py'],
     pathex=[],
-    binaries=[],
-    datas=[('icon.ico', '.')],
+    binaries=extra_binaries,
+    datas=[('icon.ico', '.')] + extra_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         'matplotlib',
-        'scipy',
         'pandas',
         'tkinter',
     ],
