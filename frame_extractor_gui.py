@@ -835,13 +835,18 @@ class SettingsDialog(QDialog):
         # === 缓存管理 ===
         cache_group = QGroupBox("缓存管理")
         cache_layout = QHBoxLayout(cache_group)
-        cache_layout.addWidget(QLabel("清除中间文件（保留最终版）"), 1)
+        cache_layout.addWidget(QLabel("手动清除中间文件（保留最终版）"), 1)
         btn_clear = QPushButton("清除缓存")
         btn_clear.setFixedHeight(30)
         btn_clear.setStyleSheet("QPushButton { color: #f44336; }")
         btn_clear.clicked.connect(self._clear_cache)
         cache_layout.addWidget(btn_clear)
         layout.addWidget(cache_group)
+
+        # === 自动清理 ===
+        self.auto_cleanup_check = QCheckBox("生成最终版后自动清理中间文件")
+        self.auto_cleanup_check.setChecked(self.settings.get("auto_cleanup", "false") == "true")
+        layout.addWidget(self.auto_cleanup_check)
 
         # === 保存/取消 ===
         btn_layout = QHBoxLayout()
@@ -863,6 +868,7 @@ class SettingsDialog(QDialog):
             "model": self.model_edit.text().strip(),
             "ocr_engine": self.engine_combo.currentData(),
             "ocr_mode": self.mode_combo.currentData(),
+            "auto_cleanup": "true" if self.auto_cleanup_check.isChecked() else "false",
         }
 
     def _test_api(self):
@@ -1120,6 +1126,7 @@ class FrameExtractorGUI(QMainWindow):
         "model": "mimo-v2.5-pro",
         "ocr_engine": "auto",
         "ocr_mode": "auto",
+        "auto_cleanup": "false",
     }
 
     def __init__(self):
@@ -1496,9 +1503,33 @@ class FrameExtractorGUI(QMainWindow):
         self.worker = worker
         self.worker.start()
 
+    def _auto_cleanup_output(self):
+        if not self.output_path or not os.path.isdir(self.output_path):
+            return
+        removed = 0
+        for item in os.listdir(self.output_path):
+            if item.endswith("-最终版.txt"):
+                continue
+            full = os.path.join(self.output_path, item)
+            try:
+                if os.path.isdir(full):
+                    shutil.rmtree(full)
+                else:
+                    os.remove(full)
+                removed += 1
+            except Exception:
+                pass
+        if removed:
+            self.log_text.append(f"自动清理：删除了 {removed} 个中间文件")
+
     def _on_ai_finished(self, success, msg):
         self.progress_bar.setValue(100 if success else self.progress_bar.value())
         self.log_text.append(f"\n{'✓' if success else '✗'} {msg}")
+
+        if success and self.settings.get("auto_cleanup", "false") == "true":
+            self._auto_cleanup_output()
+
+        # 批处理模式：自动处理下一个视频
 
         # 批处理模式：自动处理下一个视频
         if getattr(self, '_is_batch', False):
