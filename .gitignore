@@ -29,6 +29,3 @@ wheels/
 cache/
 config.json
 first_frame.png
-*.png
-!icon.ico
-!帧提取LOGO.png
