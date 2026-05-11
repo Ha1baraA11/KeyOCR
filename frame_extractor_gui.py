@@ -7,13 +7,14 @@
 
 import sys
 import os
+import json
 import shutil
 import platform
 import time
 import cv2
 import numpy as np
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QPoint, QRect, QUrl, QSettings
+from PySide6.QtCore import Qt, QThread, Signal, QPoint, QRect, QUrl
 from PySide6.QtGui import QFont, QPixmap, QImage, QPainter, QPen, QColor, QCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -974,19 +975,15 @@ class SettingsDialog(QDialog):
             return False, str(e)
 
     def _clear_cache(self):
-        # 扫描用户主目录下所有 _frames 目录
-        home = os.path.expanduser("~")
+        cache_dir = os.path.join(get_app_dir(), "cache")
+        if not os.path.isdir(cache_dir):
+            QMessageBox.information(self, "提示", "没有找到缓存目录")
+            return
         frames_dirs = []
-        for root, dirs, files in os.walk(home):
-            # 跳过隐藏目录和系统目录
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (
-                'node_modules', '__pycache__', '.git', 'Library', 'AppData')]
-            for d in dirs:
-                if d.endswith("_frames"):
-                    frames_dirs.append(os.path.join(root, d))
-            # 只扫描两层深度
-            if root.count(os.sep) - home.count(os.sep) >= 2:
-                dirs.clear()
+        for d in os.listdir(cache_dir):
+            full = os.path.join(cache_dir, d)
+            if os.path.isdir(full) and d.endswith("_frames"):
+                frames_dirs.append(full)
 
         if not frames_dirs:
             QMessageBox.information(self, "提示", "没有找到缓存目录")
@@ -1119,6 +1116,12 @@ def detect_stable_region(frames_dir, sample_count=16):
     return (0.0, ys[len(ys) // 2], 1.0, hs[len(hs) // 2])
 
 
+def get_app_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 class FrameExtractorGUI(QMainWindow):
     DEFAULT_SETTINGS = {
         "api_key": "tp-cq9dewdbgrz61kbykhbjczg3rvz5zg4nvuluuweadljy8k5z",
@@ -1133,26 +1136,34 @@ class FrameExtractorGUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("帧提取工具")
         self.setMinimumSize(640, 520)
-        icon_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(__file__)), 'icon.ico')
+        icon_path = os.path.join(get_app_dir(), 'icon.ico')
         if os.path.exists(icon_path):
             from PySide6.QtGui import QIcon
             self.setWindowIcon(QIcon(icon_path))
         self.worker = None
-        self._qsettings = QSettings("ZhenTiqu", "FrameExtractor")
+        self._config_path = os.path.join(get_app_dir(), "config.json")
         self.settings = self._load_settings()
         self._init_ui()
 
     def _load_settings(self):
         s = dict(self.DEFAULT_SETTINGS)
-        for key in s:
-            val = self._qsettings.value(key)
-            if val is not None:
-                s[key] = val
+        if os.path.exists(self._config_path):
+            try:
+                with open(self._config_path, 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                for key in s:
+                    if key in saved:
+                        s[key] = saved[key]
+            except Exception:
+                pass
         return s
 
     def _save_settings(self):
-        for key, val in self.settings.items():
-            self._qsettings.setValue(key, val)
+        try:
+            with open(self._config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def _init_ui(self):
         central = QWidget()
@@ -1240,8 +1251,9 @@ class FrameExtractorGUI(QMainWindow):
             self.video_path = paths[0]
             self.video_path_label.setText(paths[0])
             self.video_path_label.setStyleSheet("color: #eee;")
-            self.output_path = os.path.join(os.path.dirname(paths[0]),
-                                            Path(paths[0]).stem + "_frames")
+            cache_dir = os.path.join(get_app_dir(), "cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            self.output_path = os.path.join(cache_dir, Path(paths[0]).stem + "_frames")
             self._is_batch = False
         else:
             # 多视频：自动开启批处理
@@ -1271,7 +1283,7 @@ class FrameExtractorGUI(QMainWindow):
 
             # 打开最后一个视频的输出目录
             last_video = self._batch_videos[-1]
-            last_output = os.path.join(os.path.dirname(last_video),
+            last_output = os.path.join(get_app_dir(), "cache",
                                        Path(last_video).stem + "_frames")
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("批处理完成")
@@ -1285,8 +1297,9 @@ class FrameExtractorGUI(QMainWindow):
 
         video_path = self._batch_videos[self._batch_index]
         self.video_path = video_path
-        self.output_path = os.path.join(os.path.dirname(video_path),
-                                        Path(video_path).stem + "_frames")
+        cache_dir = os.path.join(get_app_dir(), "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        self.output_path = os.path.join(cache_dir, Path(video_path).stem + "_frames")
         self._region = None
 
         self.log_text.append(f"\n{'='*40}")
