@@ -25,13 +25,21 @@ from PySide6.QtWidgets import (
 )
 
 # Windows 下预导入 paddle + paddleocr，让 PaddleX 在主线程只初始化一次
-# 顺序很重要：先 paddle 再 paddleocr，避免循环依赖触发重复初始化
+# 如果先 paddle 再 paddleocr 失败（PaddleX 被 paddle 触发后冲突），
+# 则反转顺序：先 paddleocr 再 paddle
+_PADDLE_READY = False
 if sys.platform == 'win32':
     try:
         import paddle  # noqa: F401
         import paddleocr  # noqa: F401
-    except Exception as e:
-        print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
+        _PADDLE_READY = True
+    except Exception:
+        try:
+            import paddleocr  # noqa: F401
+            import paddle  # noqa: F401
+            _PADDLE_READY = True
+        except Exception as e:
+            print(f"[启动] paddle/paddleocr 预导入失败: {e}", file=sys.stderr)
 
 
 # --- OCR 引擎抽象层 ---
@@ -84,6 +92,11 @@ class PaddleOCREngine:
             return
         import paddle
         import paddleocr
+        # 如果预导入成功，paddle/paddleocr 已在 sys.modules 中，import 是 no-op
+        # 如果预导入失败，这里会重新导入，可能触发 PaddleX 重复初始化
+        # 通过检查 _PADDLE_READY 避免在预导入失败后重复尝试
+        if not _PADDLE_READY:
+            raise RuntimeError("paddle/paddleocr 预导入失败，无法初始化 GPU OCR")
         use_gpu = paddle.device.is_compiled_with_cuda()
         try:
             self._engine = paddleocr.PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=use_gpu,
