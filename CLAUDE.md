@@ -7,9 +7,10 @@
 视频分帧工具，基于 PySide6 GUI + OpenCV，从视频中智能提取关键帧并批量 OCR。
 
 ## 运行环境
-- Python 3.13
+- Python 3.12+（Windows GPU 需 3.9~3.12）
 - macOS ARM64 / Windows x64
-- 依赖：PySide6, opencv-python, numpy, rapidocr
+- 依赖：PySide6, opencv-python, numpy
+- OCR：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR (GPU 需 CUDA 11.8 + cuDNN)
 - 启动命令：`python frame_extractor_gui.py`
 
 ## Windows 打包与安装
@@ -35,10 +36,17 @@
 - 配置存放在 exe 同目录的 `config.json`，JSON 格式
 - 启动时自动加载，点"保存"时自动写入
 - 开发环境和打包后行为一致
+- API Key 默认为空，用户需在设置中填写
 
 ## 输出目录
 - 提取的帧统一存放在 `{安装目录}/cache/{视频名}_frames/`
 - 清除缓存只扫描 `{安装目录}/cache/` 目录
+
+## OCR 引擎
+- **自动选择**：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR
+- **CPU (RapidOCR)**：纯 CPU，无需额外环境
+- **GPU (PaddleOCR)**：需 CUDA 11.8 + cuDNN + paddlepaddle-gpu
+- OCR 开始时日志输出当前使用的引擎名称
 
 ## 批处理模式
 - 选择多个视频时自动开启批处理
@@ -47,9 +55,8 @@
 - 全部完成后输出总耗时，可打开最后输出目录
 
 ## 缓存管理
-- 设置中"清除缓存"扫描用户主目录下所有 `_frames` 目录
+- 设置中"清除缓存"扫描 `{安装目录}/cache/` 下所有 `_frames` 目录
 - 删除除 `-最终版.txt` 以外的所有文件
-- 跳过隐藏目录和系统目录（`.git`、`node_modules`、`Library`、`AppData`）
 - **自动清理**：设置中开启后，AI 纠错完成自动删除当前视频的中间文件，只保留 `-最终版.txt`
 
 ## 核心算法
@@ -66,7 +73,9 @@
 - 96 帧，覆盖率 100%，压缩率 7.2%（14.0x）
 
 ### 批量 OCR（BatchOCRWorker）
-使用 RapidOCR（PP-OCRv4, ONNX Runtime）逐张识别图片，结果合并输出到 `ocr_results.txt`。
+逐张识别图片，结果合并输出到 `ocr_results.txt`。
+- CPU 模式：RapidOCR（PP-OCRv4, ONNX Runtime）
+- GPU 模式：PaddleOCR（PaddlePaddle + CUDA）
 
 ### OCR 本地合并去重（merge_ocr.py）
 OCR 完成后自动调用，把相邻帧中重复的文本合并：
