@@ -113,7 +113,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['runtime_hook_cv2.py'],
     excludes=[
         'matplotlib',
         'tkinter',
