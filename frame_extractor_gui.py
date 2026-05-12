@@ -7,6 +7,15 @@
 
 import sys
 import os
+import io
+
+# PyInstaller 窗口模式下 sys.stdout/sys.stderr 为 None，
+# PaddleX 下载模型时 print() 会 AttributeError。提前补上空流。
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
 import json
 import tempfile
 import shutil
@@ -77,7 +86,10 @@ class OCREngine:
 
 class RapidOCREngine:
     def __init__(self):
-        from rapidocr import RapidOCR
+        try:
+            from rapidocr import RapidOCR
+        except ModuleNotFoundError:
+            from rapidocr_onnxruntime import RapidOCR
         self._engine = RapidOCR()
         self.name = "RapidOCR (CPU)"
 
