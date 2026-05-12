@@ -10,45 +10,63 @@ echo.
 REM 检查 Python 是否安装
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 Python，请先安装 Python 3.10+
+    echo [错误] 未找到 Python，请先安装 Python 3.10 或 3.12
     echo 下载地址: https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-REM 检查 pip 是否可用
-pip --version >nul 2>&1
+echo [1/6] 检查 Python 版本...
+for /f "tokens=2 delims= " %%i in ('python --version 2^>^&1') do set PYVER=%%i
+echo 检测到 Python !PYVER!
+echo !PYVER! | findstr "3.10 3.12" >nul
 if errorlevel 1 (
-    echo [错误] 未找到 pip
+    echo [错误] Windows GPU OCR 仅验证 Python 3.10 / 3.12
     pause
     exit /b 1
 )
 
-echo [1/4] 安装项目依赖...
-pip install PySide6 opencv-python numpy -q
+echo [2/6] 升级 pip...
+python -m pip install --upgrade pip -q
 if errorlevel 1 (
-    echo [错误] 依赖安装失败
+    echo [错误] pip 升级失败
     pause
     exit /b 1
 )
 
-echo [2/4] 安装 PaddleOCR（Windows 版）...
-pip install paddlepaddle paddleocr -q
-pip install "paddlex[ocr]" -q
-if errorlevel 1 (
-    echo [警告] PaddleOCR 安装失败，OCR 功能可能不可用
-    echo         可稍后手动安装: pip install paddlepaddle paddleocr "paddlex[ocr]"
-)
+echo [3/6] 清理冲突的 OpenCV 包...
+python -m pip uninstall opencv-python opencv-contrib-python opencv-python-headless -y >nul 2>&1
 
-echo [3/4] 安装 PyInstaller...
-pip install pyinstaller -q
+echo [4/6] 安装基础依赖...
+python -m pip install PySide6 numpy pyinstaller rapidocr-onnxruntime -q
 if errorlevel 1 (
-    echo [错误] PyInstaller 安装失败
+    echo [错误] 基础依赖安装失败
+    pause
+    exit /b 1
+)
+python -m pip install opencv-contrib-python==4.10.0.84 -q
+if errorlevel 1 (
+    echo [错误] OpenCV 安装失败
     pause
     exit /b 1
 )
 
-echo [4/4] 开始打包...
+echo [5/6] 安装 PaddleOCR GPU 依赖...
+python -m pip install paddlepaddle-gpu==3.3.0 paddleocr "paddlex[ocr]" pypdfium2 -q
+if errorlevel 1 (
+    echo [错误] PaddleOCR GPU 核心依赖安装失败
+    echo 请确认 NVIDIA 驱动 591.86+、CUDA 11.8、cuDNN 已安装
+    pause
+    exit /b 1
+)
+python -m pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests -q
+if errorlevel 1 (
+    echo [错误] PaddleOCR 传递依赖安装失败
+    pause
+    exit /b 1
+)
+
+echo [6/6] 开始打包...
 echo.
 pyinstaller frame_extractor.spec --clean --noconfirm
 if errorlevel 1 (
@@ -66,7 +84,8 @@ echo.
 echo 可执行文件位置: dist\帧提取工具.exe
 echo.
 echo 提示:
-echo - 首次运行可能需要几秒启动时间
+echo - 首次运行 OCR 可能会下载模型，时间较长
+echo - 如果 OCR 初始化失败，请先删除 %USERPROFILE%\.paddlex 后重试
 echo - 如果杀毒软件误报，请添加信任
 echo.
 pause

@@ -7,6 +7,29 @@ import numpy as np
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(__file__))
+from frame_extractor_gui import _safe_open_path, _cleanup_safe_path
+
+
+def _open_video_compat(video_path):
+    safe_path, tmp_dir = _safe_open_path(video_path)
+    cap = cv2.VideoCapture(safe_path)
+    return cap, tmp_dir
+
+
+def _imwrite_compat(path, image):
+    if cv2.imwrite(path, image):
+        return True
+    try:
+        ok, buf = cv2.imencode(os.path.splitext(path)[1] or '.png', image)
+        if not ok:
+            return False
+        with open(path, 'wb') as f:
+            f.write(buf.tobytes())
+        return True
+    except Exception:
+        return False
+
 
 def detect_center_region(frame):
     """检测帧中字幕卡片区域。
@@ -81,8 +104,9 @@ def detect_stable_region(video_path, coarse_fps=9, sample_count=16):
     Returns:
         (x, y, w, h) 框选区域（像素坐标）
     """
-    cap = cv2.VideoCapture(video_path)
+    cap, tmp_dir = _open_video_compat(video_path)
     if not cap.isOpened():
+        _cleanup_safe_path(tmp_dir)
         return None
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -105,6 +129,7 @@ def detect_stable_region(video_path, coarse_fps=9, sample_count=16):
         if 0.05 <= r[3] / frame_h <= 0.50:
             regions.append(r)
     cap.release()
+    _cleanup_safe_path(tmp_dir)
 
     if len(regions) < 2:
         return (0, int(frame_h * 0.25), frame_w, int(frame_h * 0.5))
@@ -129,8 +154,9 @@ def main():
     video_path = sys.argv[1] if len(sys.argv) > 1 else "/Users/zetazero/Downloads/测试4.MP4"
     output_path = video_path.rsplit(".", 1)[0] + "_ocr_region.png"
 
-    cap = cv2.VideoCapture(video_path)
+    cap, tmp_dir = _open_video_compat(video_path)
     if not cap.isOpened():
+        _cleanup_safe_path(tmp_dir)
         print(f"无法打开视频: {video_path}")
         sys.exit(1)
 
@@ -146,16 +172,17 @@ def main():
     print(f"框占帧高度: {box_h/h*100:.1f}%")
 
     # 读取第一帧绘制框
-    cap = cv2.VideoCapture(video_path)
+    cap, tmp_dir = _open_video_compat(video_path)
     ret, frame = cap.read()
     cap.release()
+    _cleanup_safe_path(tmp_dir)
     if ret:
         result = frame.copy()
         cv2.rectangle(result, (x, y), (x + box_w, y + box_h), (0, 255, 0), 3)
         label = f"Region: y={y}, h={box_h}"
         cv2.putText(result, label, (10, y - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        cv2.imwrite(output_path, result)
+        _imwrite_compat(output_path, result)
         print(f"结果已保存: {output_path}")
 
 

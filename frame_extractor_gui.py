@@ -80,7 +80,7 @@ class OCREngine:
             engine_type = "gpu" if sys.platform == "win32" else "cpu"
 
         if engine_type == "gpu":
-            return PaddleOCREngine()
+            return PaddleOCREngine(require_gpu=True)
         else:
             return RapidOCREngine()
 
@@ -111,17 +111,18 @@ class PaddleOCREngine:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, require_gpu=False):
         if self._engine is not None:
+            if require_gpu and self.name != "PaddleOCR (GPU)":
+                raise RuntimeError("当前环境未检测到可用 CUDA，请安装 paddlepaddle-gpu==3.3.0 并确认 NVIDIA 驱动/CUDA 11.8 可用")
             return
         import paddle
         import paddleocr
-        # 如果预导入成功，paddle/paddleocr 已在 sys.modules 中，import 是 no-op
-        # 如果预导入失败，这里会重新导入，可能触发 PaddleX 重复初始化
-        # 通过检查 _PADDLE_READY 避免在预导入失败后重复尝试
         if not _PADDLE_READY:
             raise RuntimeError("paddle/paddleocr 预导入失败，无法初始化 GPU OCR")
         use_gpu = paddle.device.is_compiled_with_cuda()
+        if require_gpu and not use_gpu:
+            raise RuntimeError("当前环境未检测到可用 CUDA，请安装 paddlepaddle-gpu==3.3.0 并确认 NVIDIA 驱动/CUDA 11.8 可用")
 
         # PaddleX 的 require_extra/require_deps 通过 importlib.metadata 检查包名，
         # 但 PyInstaller 打包后元数据丢失，且 opencv-contrib-python 与 opencv-python
@@ -189,8 +190,8 @@ class PaddleOCREngine:
                             scores.append(score)
                         except (ValueError, TypeError):
                             pass
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[OCR 2.x fallback error] {e}", file=sys.stderr)
         return texts, scores
 
 
@@ -319,9 +320,13 @@ def _safe_open_path(path):
         return safe_link, tmp_dir
     except OSError:
         # symlink 需要权限，回退：用 8.3 短路径
-        buf = ctypes.create_unicode_buffer(512)
-        if ctypes.windll.kernel32.GetShortPathNameW(path, buf, 512):
-            return buf.value, None
+        try:
+            buf = ctypes.create_unicode_buffer(512)
+            if ctypes.windll.kernel32.GetShortPathNameW(path, buf, 512):
+                return buf.value, None
+        except Exception:
+            pass
+        print(f"[WARNING] 中文路径兼容失败（symlink 和 8.3 短路径均不可用）: {path}", file=sys.stderr)
         return path, None
 
 
@@ -650,10 +655,16 @@ class RegionSelectorDialog(QDialog):
         self.setWindowTitle("选择 OCR 区域")
         self.setMinimumSize(800, 600)
 
-        # 加载原图
-        self.original_pixmap = QPixmap(image_path)
-        if self.original_pixmap.isNull():
+        # 加载原图（兼容中文路径）
+        img = _read_frame(image_path)
+        if img is None:
             raise ValueError(f"无法加载图片: {image_path}")
+        h, w, ch = img.shape
+        bytes_per_line = ch * w
+        # OpenCV 是 BGR，QImage 需要 RGB
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        qimg = QImage(img_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        self.original_pixmap = QPixmap.fromImage(qimg.copy())
 
         self.orig_w = self.original_pixmap.width()
         self.orig_h = self.original_pixmap.height()
@@ -806,7 +817,13 @@ class BatchOCRWorker(QThread):
                     img = img[y1:y2, x1:x2]
                     texts, scores = engine.ocr(img)
                 else:
-                    texts, scores = engine.ocr(fpath)
+                    img = _read_frame(fpath)
+                    if img is None:
+                        self.log.emit(f"[{i+1}/{len(files)}] {fname}: 读取失败，跳过")
+                        results.append(f"=== {fname} ===\n(读取失败)")
+                        self.progress.emit(i + 1, len(files))
+                        continue
+                    texts, scores = engine.ocr(img)
 
                 if texts:
                     text = "\n".join(texts)
@@ -1077,7 +1094,7 @@ class SettingsDialog(QDialog):
             ("Python", self._check_python),
             ("OpenCV", self._check_opencv),
             ("RapidOCR (CPU)", self._check_rapidocr),
-            ("PaddlePaddle GPU", self._check_paddle_gpu),
+            ("PaddleOCR 运行环境", self._check_paddle_runtime),
             ("CUDA 可用", self._check_cuda),
         ]
         for name, func in checks:
@@ -1109,23 +1126,23 @@ class SettingsDialog(QDialog):
         except ImportError:
             return False, "未安装，请运行: pip install rapidocr-onnxruntime"
 
-    def _check_paddle_gpu(self):
+    def _check_paddle_runtime(self):
         try:
             import paddle
-            gpu = paddle.device.is_compiled_with_cuda()
-            if not gpu:
-                return False, f"PaddlePaddle {paddle.__version__} (仅 CPU，需安装 paddlepaddle-gpu)"
             try:
                 import paddleocr  # noqa: F401
             except ImportError:
-                return False, "PaddleOCR 未安装，请运行: pip install paddleocr"
+                return False, "PaddleOCR 未安装，请运行: python -m pip install paddleocr"
             try:
                 import paddlex  # noqa: F401
             except ImportError:
-                return False, "paddlex 未安装，请运行: pip install paddlex[ocr]"
-            return True, f"PaddlePaddle {paddle.__version__} (GPU)"
+                return False, "paddlex 未安装，请运行: python -m pip install \"paddlex[ocr]\""
+            gpu = paddle.device.is_compiled_with_cuda()
+            if gpu:
+                return True, f"PaddlePaddle {paddle.__version__} (GPU)"
+            return False, f"PaddlePaddle {paddle.__version__} (仅 CPU，GPU OCR 不可用)"
         except ImportError:
-            return False, "未安装，请运行: pip install paddlepaddle-gpu"
+            return False, "未安装，请运行: python -m pip install paddlepaddle-gpu==3.3.0 paddleocr \"paddlex[ocr]\""
         except Exception as e:
             return False, f"检测失败: {e}"
 
