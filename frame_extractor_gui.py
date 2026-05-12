@@ -110,18 +110,38 @@ class PaddleOCREngine:
         if not _PADDLE_READY:
             raise RuntimeError("paddle/paddleocr 预导入失败，无法初始化 GPU OCR")
         use_gpu = paddle.device.is_compiled_with_cuda()
+
+        # PyInstaller 打包环境下，importlib.metadata 无法正确读取 paddlex 的 extra 元数据，
+        # 导致 require_extra('ocr') 误报 DependencyError。打包时依赖已全部打进 exe，跳过检查。
+        _frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+        _orig_require_extra = None
+        if _frozen:
+            try:
+                from paddlex.utils import deps as _paddlex_deps
+                _orig_require_extra = getattr(_paddlex_deps, 'require_extra', None)
+                if _orig_require_extra:
+                    _paddlex_deps.require_extra = lambda *a, **kw: None
+            except Exception:
+                _orig_require_extra = None
+
         try:
             # PaddleOCR 3.x API: use_angle_cls → use_textline_orientation,
             # show_log/use_gpu 已移除
             self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
         except Exception as e:
             PaddleOCREngine._instance = None
-            # DependencyError 可能是外层异常，也可能是 __cause__（被 RuntimeError 包装）
             if _is_paddlex_dep_error(e):
                 raise RuntimeError(
                     "paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\""
                 ) from e
             raise
+        finally:
+            # 恢复原始 require_extra
+            if _frozen and _orig_require_extra:
+                try:
+                    _paddlex_deps.require_extra = _orig_require_extra
+                except Exception:
+                    pass
         self.name = "PaddleOCR (GPU)" if use_gpu else "PaddleOCR (CPU)"
 
     def ocr(self, img_input):
