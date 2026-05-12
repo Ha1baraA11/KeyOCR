@@ -1317,9 +1317,9 @@ class FrameExtractorGUI(QMainWindow):
         "api_key": "",
         "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
         "model": "mimo-v2.5-pro",
-        "ocr_engine": "auto",
+        "ocr_engine": "gpu",
         "ocr_mode": "auto",
-        "auto_cleanup": "false",
+        "auto_cleanup": "true",
     }
 
     def __init__(self):
