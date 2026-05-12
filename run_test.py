@@ -8,9 +8,14 @@ import shutil
 import cv2
 import numpy as np
 
-# 添加项目路径
 sys.path.insert(0, os.path.dirname(__file__))
-from frame_extractor_gui import _compute_diffs, _find_transition_peaks, _extract_frame_number
+from frame_extractor_gui import (
+    _compute_diffs,
+    _find_transition_peaks,
+    _extract_frame_number,
+    _safe_open_path,
+    _cleanup_safe_path,
+)
 
 # === 配置 ===
 VIDEO_PATH = "/Users/zetazero/Downloads/测试.mp4"
@@ -37,9 +42,30 @@ CORRECT = {
 TOLERANCE = 6  # ±6 帧误差
 
 
+def _open_video_compat(video_path):
+    safe_path, tmp_dir = _safe_open_path(video_path)
+    cap = cv2.VideoCapture(safe_path)
+    return cap, tmp_dir
+
+
+def _imwrite_compat(path, image):
+    if cv2.imwrite(path, image):
+        return True
+    try:
+        ok, buf = cv2.imencode(os.path.splitext(path)[1] or '.png', image)
+        if not ok:
+            return False
+        with open(path, 'wb') as f:
+            f.write(buf.tobytes())
+        return True
+    except Exception:
+        return False
+
+
 def main():
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    cap, tmp_dir = _open_video_compat(VIDEO_PATH)
     if not cap.isOpened():
+        _cleanup_safe_path(tmp_dir)
         print(f"无法打开视频: {VIDEO_PATH}")
         return
 
@@ -63,7 +89,7 @@ def main():
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ret, frame = cap.read()
         if ret:
-            cv2.imwrite(os.path.join(coarse_dir, f"frame_{i:06d}.png"), frame)
+            _imwrite_compat(os.path.join(coarse_dir, f"frame_{i:06d}.png"), frame)
             count += 1
     print(f"  结果: {count} 帧, 耗时 {time.time()-t0:.1f}s")
 
@@ -103,10 +129,11 @@ def main():
                 cap.set(cv2.CAP_PROP_POS_FRAMES, f)
                 ret, frame = cap.read()
                 if ret:
-                    cv2.imwrite(os.path.join(selected_dir, f"frame_{f:06d}.png"), frame)
+                    _imwrite_compat(os.path.join(selected_dir, f"frame_{f:06d}.png"), frame)
                     saved.add(f)
     print(f"  结果: {len(saved)} 帧, 耗时 {time.time()-t0:.1f}s")
     cap.release()
+    _cleanup_safe_path(tmp_dir)
 
     # === 评估覆盖率 ===
     selected_files = set(os.listdir(selected_dir))

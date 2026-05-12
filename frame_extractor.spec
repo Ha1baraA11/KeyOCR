@@ -23,8 +23,8 @@ if sys.platform == 'win32':
     for pkg in ['paddle', 'paddleocr', 'paddlex']:
         try:
             hidden_imports.extend(collect_submodules(pkg))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[spec] WARNING: collect_submodules({pkg!r}) failed: {e}")
 
     # 显式补充 PyInstaller 可能遗漏的关键模块
     hidden_imports.extend([
@@ -74,6 +74,11 @@ if sys.platform == 'win32':
         'python_bidi',
         'latex2mathml',
         'premailer',
+        # RapidOCR（PaddleOCR 失败时的 fallback）
+        'rapidocr',
+        'rapidocr_onnxruntime',
+        # OCR 合并去重
+        'merge_ocr',
     ])
 
 else:
@@ -91,14 +96,14 @@ if sys.platform == 'win32':
         try:
             extra_binaries += collect_dynamic_libs(pkg)
             extra_datas += collect_data_files(pkg, include_py_files=False)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[spec] WARNING: collect_dynamic_libs/data_files({pkg!r}) failed: {e}")
     # 包含 paddlex/paddleocr 的包元数据，paddlex.utils.deps.require_extra 依赖它
     for pkg in ['paddlex', 'paddleocr', 'paddle']:
         try:
             extra_datas += copy_metadata(pkg)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[spec] WARNING: copy_metadata({pkg!r}) failed: {e}")
 
 a = Analysis(
     ['frame_extractor_gui.py'],

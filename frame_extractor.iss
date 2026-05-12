@@ -21,6 +21,9 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "dist\帧提取工具.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
+[Dirs]
+Name: "{app}\cache"; Permissions: users-modify
+
 [Icons]
 Name: "{group}\帧提取工具"; Filename: "{app}\帧提取工具.exe"; IconFilename: "{app}\icon.ico"
 Name: "{group}\卸载帧提取工具"; Filename: "{uninstallexe}"
