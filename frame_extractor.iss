@@ -22,6 +22,7 @@ Source: "dist\帧提取工具.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
+Name: "{app}"; Permissions: users-modify
 Name: "{app}\cache"; Permissions: users-modify
 
 [Icons]
