@@ -127,6 +127,10 @@ class PaddleOCREngine:
         # PaddleX 的 require_extra/require_deps 通过 importlib.metadata 检查包名，
         # 但 PyInstaller 打包后元数据丢失，且 opencv-contrib-python 与 opencv-python
         # 的包名冲突也会导致误报。既然依赖已确认安装（import 成功），直接跳过检查。
+
+        # PaddleX image_reader.py 在初始化时 import cv2，
+        # PyInstaller 打包后 cv2 可能不在 sys.modules 中，提前导入兜底
+        import cv2  # noqa: F401
         _orig_require_extra = None
         _orig_require_deps = None
         try:
