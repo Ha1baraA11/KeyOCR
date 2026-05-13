@@ -47,6 +47,9 @@ jobs:
       if: github.event_name == 'push'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
       run: |
-        $tag = "v$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        gh release create $tag --title "帧提取工具 $tag" --generate-notes dist/帧提取工具.exe Output/帧提取工具_安装程序.exe
+        tag="v$(date +%Y%m%d-%H%M%S)"
+        cp "dist/帧提取工具.exe" "dist/ZhenTiqu.exe"
+        cp "Output/帧提取工具_安装程序.exe" "Output/ZhenTiqu_Setup.exe"
+        gh release create "$tag" --title "帧提取工具 $tag" --generate-notes dist/ZhenTiqu.exe Output/ZhenTiqu_Setup.exe
