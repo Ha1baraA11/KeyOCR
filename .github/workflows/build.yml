@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
     - uses: actions/checkout@v4
@@ -41,16 +43,10 @@ jobs:
       with:
         path: frame_extractor.iss
 
-    - name: Upload EXE
-      uses: actions/upload-artifact@v4
-      with:
-        name: 帧提取工具-exe
-        path: dist/帧提取工具.exe
-        retention-days: 90
-
-    - name: Upload Installer
-      uses: actions/upload-artifact@v4
-      with:
-        name: 帧提取工具-安装程序
-        path: Output/帧提取工具_安装程序.exe
-        retention-days: 90
+    - name: Create Release
+      if: github.event_name == 'push'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $tag = "v$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        gh release create $tag --title "帧提取工具 $tag" --generate-notes dist/帧提取工具.exe Output/帧提取工具_安装程序.exe
