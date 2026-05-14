@@ -138,7 +138,23 @@ def run_self_check(output_path=None):
     except Exception as e:
         report["paddle_cuda_error"] = _format_exception_chain(e)
 
-    ok = report["modules"]["cv2"]["ok"] and report["modules"]["rapidocr"]["ok"]
+    try:
+        _rapid = RapidOCREngine()
+        report["rapidocr_engine"] = {
+            "ok": True,
+            "name": _rapid.name,
+        }
+    except Exception as e:
+        report["rapidocr_engine"] = {
+            "ok": False,
+            "error": _format_exception_chain(e),
+        }
+
+    ok = (
+        report["modules"]["cv2"]["ok"]
+        and report["modules"]["rapidocr"]["ok"]
+        and report.get("rapidocr_engine", {}).get("ok", False)
+    )
     if sys.platform == "win32":
         ok = (
             ok
@@ -247,7 +263,9 @@ class PaddleOCREngine:
         # 的包名冲突也会导致误报。既然依赖已确认安装（import 成功），直接跳过检查。
         # 特别是 is_dep_available("opencv-contrib-python") 返回 False 会导致
         # image_reader.py 不执行 import cv2，后续使用 cv2 时 NameError。
-        import cv2  # noqa: F401
+        import builtins
+        import cv2
+        builtins.cv2 = cv2
         _orig_require_extra = None
         _orig_require_deps = None
         _orig_is_dep_available = None
@@ -267,6 +285,12 @@ class PaddleOCREngine:
                         return True
                     return _orig_is_dep_available(dep_name, *a, **kw)
                 _paddlex_deps.is_dep_available = _patched_is_dep_available
+            # 进一步兜底：如果 image_reader 模块已被导入过，手动把 cv2 填回它的全局命名空间。
+            try:
+                import paddlex.inference.common.reader.image_reader as _image_reader
+                _image_reader.cv2 = cv2
+            except Exception:
+                pass
         except Exception:
             pass
 
