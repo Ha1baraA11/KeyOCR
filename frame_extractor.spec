@@ -19,9 +19,13 @@ def _collect_required_assets(pkg, collect_dynamic_libs, collect_data_files, copy
     try:
         binaries = collect_dynamic_libs(pkg)
         datas = collect_data_files(pkg, include_py_files=False)
-        datas += copy_metadata(pkg)
     except Exception as e:
         raise SystemExit(f"[spec] ERROR: failed to collect assets for {pkg!r}: {e}")
+    # copy_metadata 可能因 dist-info 名称不匹配而失败（如 paddlepaddle → paddle），非致命
+    try:
+        datas += copy_metadata(pkg)
+    except Exception as e:
+        print(f"[spec] WARNING: copy_metadata({pkg!r}) failed: {e}")
     return binaries, datas
 
 # 隐式导入列表
