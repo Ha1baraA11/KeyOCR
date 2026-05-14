@@ -4,6 +4,26 @@ import os
 
 block_cipher = None
 
+
+def _collect_required_submodules(pkg, collect_submodules):
+    try:
+        modules = collect_submodules(pkg)
+    except Exception as e:
+        raise SystemExit(f"[spec] ERROR: collect_submodules({pkg!r}) failed: {e}")
+    if not modules:
+        raise SystemExit(f"[spec] ERROR: package {pkg!r} is not importable in the build environment")
+    return modules
+
+
+def _collect_required_assets(pkg, collect_dynamic_libs, collect_data_files, copy_metadata):
+    try:
+        binaries = collect_dynamic_libs(pkg)
+        datas = collect_data_files(pkg, include_py_files=False)
+        datas += copy_metadata(pkg)
+    except Exception as e:
+        raise SystemExit(f"[spec] ERROR: failed to collect assets for {pkg!r}: {e}")
+    return binaries, datas
+
 # 隐式导入列表
 hidden_imports = [
     'PySide6.QtCore',
@@ -21,10 +41,7 @@ if sys.platform == 'win32':
 
     # 自动发现所有子模块，比手动列举可靠
     for pkg in ['paddle', 'paddleocr', 'paddlex']:
-        try:
-            hidden_imports.extend(collect_submodules(pkg))
-        except Exception as e:
-            print(f"[spec] WARNING: collect_submodules({pkg!r}) failed: {e}")
+        hidden_imports.extend(_collect_required_submodules(pkg, collect_submodules))
 
     # 显式补充 PyInstaller 可能遗漏的关键模块
     hidden_imports.extend([
@@ -93,17 +110,9 @@ extra_datas = []
 if sys.platform == 'win32':
     from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
     for pkg in ['paddle', 'paddleocr', 'paddlex']:
-        try:
-            extra_binaries += collect_dynamic_libs(pkg)
-            extra_datas += collect_data_files(pkg, include_py_files=False)
-        except Exception as e:
-            print(f"[spec] WARNING: collect_dynamic_libs/data_files({pkg!r}) failed: {e}")
-    # 包含 paddlex/paddleocr 的包元数据，paddlex.utils.deps.require_extra 依赖它
-    for pkg in ['paddlex', 'paddleocr', 'paddle']:
-        try:
-            extra_datas += copy_metadata(pkg)
-        except Exception as e:
-            print(f"[spec] WARNING: copy_metadata({pkg!r}) failed: {e}")
+        pkg_binaries, pkg_datas = _collect_required_assets(pkg, collect_dynamic_libs, collect_data_files, copy_metadata)
+        extra_binaries += pkg_binaries
+        extra_datas += pkg_datas
 
 a = Analysis(
     ['frame_extractor_gui.py'],

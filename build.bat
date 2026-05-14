@@ -82,6 +82,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [附加检查] 验证打包后的 EXE 依赖完整性...
+set ZHENTIQU_SELF_CHECK=1
+set ZHENTIQU_SELF_CHECK_OUTPUT=%TEMP%\zhentiqu-self-check.json
+dist\帧提取工具.exe
+if errorlevel 1 (
+    echo [错误] 打包后的 EXE 自检失败
+    if exist "%ZHENTIQU_SELF_CHECK_OUTPUT%" type "%ZHENTIQU_SELF_CHECK_OUTPUT%"
+    pause
+    exit /b 1
+)
+if exist "%ZHENTIQU_SELF_CHECK_OUTPUT%" (
+    echo 自检报告:
+    type "%ZHENTIQU_SELF_CHECK_OUTPUT%"
+)
+set ZHENTIQU_SELF_CHECK=
+set ZHENTIQU_SELF_CHECK_OUTPUT=
+
 echo.
 echo ========================================
 echo    打包完成！

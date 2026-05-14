@@ -8,6 +8,7 @@
 import sys
 import os
 import io
+import importlib
 
 # PyInstaller 窗口模式下 sys.stdout/sys.stderr 为 None，
 # PaddleX 下载模型时 print() 会 AttributeError。提前补上空流。
@@ -65,6 +66,78 @@ def _is_paddlex_dep_error(exc):
         return True
     return False
 
+
+def _format_exception_chain(exc):
+    parts = []
+    seen = set()
+    current = exc
+    while current and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = getattr(current, '__cause__', None) or getattr(current, '__context__', None)
+    return " <- ".join(parts)
+
+
+def _write_self_check_report(output_path, report):
+    if not output_path:
+        return
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _import_status(module_names):
+    if isinstance(module_names, str):
+        module_names = [module_names]
+    last_error = None
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+            return {
+                "ok": True,
+                "module": module_name,
+                "version": getattr(module, "__version__", ""),
+            }
+        except Exception as e:
+            last_error = e
+    return {
+        "ok": False,
+        "module": module_names[0],
+        "error": _format_exception_chain(last_error) if last_error else "unknown error",
+    }
+
+
+def run_self_check(output_path=None):
+    report = {
+        "platform": sys.platform,
+        "python": sys.version.split()[0],
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "modules": {
+            "cv2": _import_status("cv2"),
+            "numpy": _import_status("numpy"),
+            "rapidocr": _import_status(["rapidocr", "rapidocr_onnxruntime"]),
+            "paddle": _import_status("paddle"),
+            "paddleocr": _import_status("paddleocr"),
+            "paddlex": _import_status("paddlex"),
+        },
+    }
+
+    try:
+        import paddle
+        report["paddle_cuda"] = bool(paddle.device.is_compiled_with_cuda())
+    except Exception as e:
+        report["paddle_cuda_error"] = _format_exception_chain(e)
+
+    ok = report["modules"]["cv2"]["ok"] and report["modules"]["rapidocr"]["ok"]
+    if sys.platform == "win32":
+        ok = ok and report["modules"]["paddle"]["ok"] and report["modules"]["paddleocr"]["ok"] and report["modules"]["paddlex"]["ok"]
+
+    report["ok"] = ok
+    _write_self_check_report(output_path, report)
+    return 0 if ok else 1
+
 class OCREngine:
     """OCR 引擎：自动根据平台选择 RapidOCR (Mac) 或 PaddleOCR+GPU (Windows)"""
 
@@ -77,12 +150,21 @@ class OCREngine:
         gpu: 强制用 PaddleOCR
         """
         if engine_type == "auto":
-            engine_type = "gpu" if sys.platform == "win32" else "cpu"
+            if sys.platform == "win32":
+                try:
+                    return PaddleOCREngine(require_gpu=True)
+                except Exception as e:
+                    fallback = RapidOCREngine()
+                    fallback.notice = (
+                        "PaddleOCR 初始化失败，已自动切换到 RapidOCR (CPU)。\n"
+                        f"原因: {_format_exception_chain(e)}"
+                    )
+                    return fallback
+            return RapidOCREngine()
 
         if engine_type == "gpu":
             return PaddleOCREngine(require_gpu=True)
-        else:
-            return RapidOCREngine()
+        return RapidOCREngine()
 
 class RapidOCREngine:
     def __init__(self):
@@ -92,6 +174,7 @@ class RapidOCREngine:
             from rapidocr_onnxruntime import RapidOCR
         self._engine = RapidOCR()
         self.name = "RapidOCR (CPU)"
+        self.notice = ""
 
     def ocr(self, img_input):
         """img_input: 图片路径(str) 或 numpy 数组
@@ -116,8 +199,20 @@ class PaddleOCREngine:
             if require_gpu and self.name != "PaddleOCR (GPU)":
                 raise RuntimeError("当前环境未检测到可用 CUDA，请安装 paddlepaddle-gpu==3.3.0 并确认 NVIDIA 驱动/CUDA 11.8 可用")
             return
-        import paddle
-        import paddleocr
+        try:
+            import paddle
+        except ModuleNotFoundError as e:
+            raise RuntimeError(
+                "未找到 paddle 模块，当前安装包缺少 PaddlePaddle 运行时。"
+                "请在设置里改用“自动选择”或“CPU (RapidOCR)”，或重新下载最新 release。"
+            ) from e
+        try:
+            import paddleocr
+        except ModuleNotFoundError as e:
+            raise RuntimeError(
+                "未找到 paddleocr 模块，当前安装包缺少 PaddleOCR 运行时。"
+                "请在设置里改用“自动选择”或“CPU (RapidOCR)”，或重新下载最新 release。"
+            ) from e
         if not _PADDLE_READY:
             raise RuntimeError("paddle/paddleocr 预导入失败，无法初始化 GPU OCR")
         use_gpu = paddle.device.is_compiled_with_cuda()
@@ -808,6 +903,8 @@ class BatchOCRWorker(QThread):
                 self.log.emit(f"OCR 区域: x={self.region[0]:.2f} y={self.region[1]:.2f} "
                               f"w={self.region[2]:.2f} h={self.region[3]:.2f}")
             engine = OCREngine.create(self.engine_type)
+            if getattr(engine, "notice", ""):
+                self.log.emit(engine.notice)
             self.log.emit(f"OCR 引擎: {engine.name}")
 
             results = []
@@ -1007,7 +1104,7 @@ class SettingsDialog(QDialog):
                 self.engine_combo.setCurrentIndex(i)
                 break
         ocr_layout.addWidget(self.engine_combo)
-        ocr_layout.addWidget(QLabel("自动：Mac 用 CPU，Windows 用 GPU"))
+        ocr_layout.addWidget(QLabel("自动：优先 PaddleOCR，失败时自动回退到 RapidOCR"))
         layout.addWidget(ocr_group)
 
         # === 环境检测 ===
@@ -1331,7 +1428,7 @@ class FrameExtractorGUI(QMainWindow):
         "api_key": "",
         "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
         "model": "mimo-v2.5-pro",
-        "ocr_engine": "gpu",
+        "ocr_engine": "auto",
         "ocr_mode": "auto",
         "auto_cleanup": "true",
     }
@@ -1800,6 +1897,8 @@ class FrameExtractorGUI(QMainWindow):
 
 
 if __name__ == "__main__":
+    if os.environ.get("ZHENTIQU_SELF_CHECK") == "1":
+        sys.exit(run_self_check(os.environ.get("ZHENTIQU_SELF_CHECK_OUTPUT")))
     app = QApplication(sys.argv)
     window = FrameExtractorGUI()
     window.show()
