@@ -52,8 +52,8 @@ if errorlevel 1 (
 )
 
 echo [5/6] 安装 PaddleOCR GPU 依赖...
-echo 注意: paddlepaddle-gpu 需要百度源，如果网络问题可手动安装
-python -m pip install paddlepaddle-gpu==3.3.0 -i https://mirror.baidu.com/pypi/simple -q
+echo 注意: paddlepaddle-gpu 需要 PaddlePaddle 官方镜像
+python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/ -q
 if errorlevel 1 (
     echo [错误] paddlepaddle-gpu 安装失败，停止打包
     echo 不能继续回退到 CPU 版 paddle，否则会打出一个看起来像 GPU 版、实际不能用 CUDA 的安装包
