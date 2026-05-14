@@ -1898,8 +1898,26 @@ class FrameExtractorGUI(QMainWindow):
 
 if __name__ == "__main__":
     if os.environ.get("ZHENTIQU_SELF_CHECK") == "1":
-        sys.exit(run_self_check(os.environ.get("ZHENTIQU_SELF_CHECK_OUTPUT")))
-    app = QApplication(sys.argv)
-    window = FrameExtractorGUI()
-    window.show()
-    app.exec()
+        _output = os.environ.get("ZHENTIQU_SELF_CHECK_OUTPUT")
+        try:
+            sys.exit(run_self_check(_output))
+        except Exception as _e:
+            import traceback as _tb
+            _write_self_check_report(_output, {"ok": False, "crash": _tb.format_exc()})
+            sys.exit(1)
+    try:
+        app = QApplication(sys.argv)
+        window = FrameExtractorGUI()
+        window.show()
+        app.exec()
+    except Exception as _e:
+        # console=False 时 stderr 为 None，异常会被吞掉
+        # 写入日志文件方便排查
+        import traceback as _tb
+        _log_path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__), 'crash.log')
+        try:
+            with open(_log_path, 'w', encoding='utf-8') as _f:
+                _f.write(_tb.format_exc())
+        except Exception:
+            pass
+        sys.exit(1)
