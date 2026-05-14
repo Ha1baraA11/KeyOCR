@@ -110,8 +110,10 @@ class _PaddleXDepsPatch:
         try:
             import builtins
             import cv2
+            import pyclipper
             self._cv2 = cv2
             builtins.cv2 = cv2
+            builtins.pyclipper = pyclipper
             from paddlex.utils import deps as _paddlex_deps
             self._deps = _paddlex_deps
             self._orig_require_extra = getattr(_paddlex_deps, 'require_extra', None)
@@ -123,13 +125,18 @@ class _PaddleXDepsPatch:
                 _paddlex_deps.require_deps = lambda *a, **kw: None
             if self._orig_is_dep_available:
                 def _patched_is_dep_available(dep_name, *a, **kw):
-                    if dep_name in ('opencv-contrib-python', 'opencv-python'):
+                    if dep_name in ('opencv-contrib-python', 'opencv-python', 'pyclipper'):
                         return True
                     return self._orig_is_dep_available(dep_name, *a, **kw)
                 _paddlex_deps.is_dep_available = _patched_is_dep_available
             try:
                 import paddlex.inference.common.reader.image_reader as _image_reader
                 _image_reader.cv2 = cv2
+            except Exception:
+                pass
+            try:
+                import paddlex.inference.models.text_detection.processors as _td_processors
+                _td_processors.pyclipper = pyclipper
             except Exception:
                 pass
         except Exception:
@@ -168,6 +175,44 @@ def _import_status(module_names):
         "module": module_names[0],
         "error": _format_exception_chain(last_error) if last_error else "unknown error",
     }
+
+
+def _normalize_text_items(items):
+    out = []
+    if items is None:
+        return out
+    for item in items:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                out.append(text)
+            continue
+        if isinstance(item, (list, tuple)):
+            out.extend(_normalize_text_items(item))
+            continue
+        text = str(item).strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _normalize_score_items(items):
+    out = []
+    if items is None:
+        return out
+    for item in items:
+        if item is None:
+            continue
+        if isinstance(item, (list, tuple)):
+            out.extend(_normalize_score_items(item))
+            continue
+        try:
+            out.append(float(item))
+        except Exception:
+            pass
+    return out
 
 
 def run_self_check(output_path=None):
@@ -273,17 +318,17 @@ class RapidOCREngine:
         返回: (texts: list[str], scores: list[float])"""
         result = self._engine(img_input)
         if result and hasattr(result, 'txts') and result.txts:
-            return list(result.txts), list(result.scores)
+            return _normalize_text_items(result.txts), _normalize_score_items(result.scores)
         if isinstance(result, tuple):
             # 某些 RapidOCR 版本返回 (boxes, txts, scores) 或兼容 tuple 结构
             if len(result) >= 3:
-                txts = result[1] or []
-                scores = result[2] or []
-                return list(txts), list(scores)
+                txts = _normalize_text_items(result[1] or [])
+                scores = _normalize_score_items(result[2] or [])
+                return txts, scores
             if len(result) >= 2:
-                txts = result[0] or []
-                scores = result[1] or []
-                return list(txts), list(scores)
+                txts = _normalize_text_items(result[0] or [])
+                scores = _normalize_score_items(result[1] or [])
+                return txts, scores
         return [], []
 
 
@@ -350,13 +395,13 @@ class PaddleOCREngine:
                 result = self._engine.predict(img_input)
             for res in result:
                 if hasattr(res, 'get'):
-                    rec_texts = res.get('rec_texts', [])
-                    rec_scores = res.get('rec_scores', [])
+                    rec_texts = _normalize_text_items(res.get('rec_texts', []))
+                    rec_scores = _normalize_score_items(res.get('rec_scores', []))
                     texts.extend(rec_texts)
                     scores.extend(rec_scores)
                 elif hasattr(res, 'rec_texts'):
-                    texts.extend(res.rec_texts)
-                    scores.extend(res.rec_scores)
+                    texts.extend(_normalize_text_items(res.rec_texts))
+                    scores.extend(_normalize_score_items(res.rec_scores))
         except (AttributeError, TypeError):
             # PaddleOCR 2.x 兼容: ocr() 返回 [(box, (text, score)), ...]
             try:
