@@ -38,6 +38,17 @@ jobs:
       run: |
         pyinstaller frame_extractor.spec --noconfirm
 
+    - name: Self-check bundled runtime
+      run: |
+        $env:ZHENTIQU_SELF_CHECK = "1"
+        $env:ZHENTIQU_SELF_CHECK_OUTPUT = "$pwd\dist\self-check.json"
+        & ".\dist\帧提取工具.exe"
+        if ($LASTEXITCODE -ne 0) {
+          Get-Content "$pwd\dist\self-check.json"
+          throw "Bundled EXE self-check failed"
+        }
+        Get-Content "$pwd\dist\self-check.json"
+
     - name: Setup Inno Setup
       uses: Minionguyjpro/inno-setup-action@v1.2.2
       with:

@@ -91,20 +91,20 @@ python -c "from rapidocr_onnxruntime import RapidOCR; print('rapidocr OK')"
 OpenCV 在 Windows 上不支持非 ASCII 路径（中文目录/文件名）。代码通过以下方式兼容：
 - **读写帧图片**：`cv2.imwrite`/`cv2.imread` 失败时回退到 `cv2.imencode`/`cv2.imdecode` + Python 原生文件 IO
 - **打开视频文件**：`_safe_open_path()` 在 temp 目录创建符号链接（不复制文件），`cv2.VideoCapture` 通过链接访问
-- **PaddleOCR**：单例模式 + 文件顶部预导入（避免 PaddleX 重复初始化），失败时抛出完整错误（含 traceback），不静默降级
+- **PaddleOCR**：单例模式 + 文件顶部预导入（避免 PaddleX 重复初始化），失败时自动 fallback 到 RapidOCR
 
 ## Windows 打包与安装
 - `pyinstaller frame_extractor.spec` 生成 exe（icon.ico 打入包内）
-- spec 用 `collect_submodules` 自动发现 paddle/paddleocr/paddlex 全部子模块
-- spec 用 `collect_dynamic_libs` + `collect_data_files` 收集原生二进制和数据文件（PyInstaller 6.x 移除了 `collect_binaries`）
-- spec 用 `copy_metadata` 打入 paddlex/paddleocr/paddle 的包元数据
+- spec 用 `_collect_required_submodules` 自动发现 paddle/paddleocr/paddlex 全部子模块（失败直接 SystemExit，不静默跳过）
+- spec 用 `_collect_required_assets` 收集原生二进制 + 数据文件 + 包元数据（同样 fail-fast）
+- CI 和 build.bat 打包后都运行自检（`ZHENTIQU_SELF_CHECK=1`），验证 EXE 内模块完整性
 - CI 显式安装 paddleocr 全部传递依赖 + `paddlex[ocr]`
 - `build.bat` 本地打包也安装 `paddlex[ocr]`
 - spec 的 hidden_imports 包含 paddlex[ocr] 的全部依赖（core + extra，共 23 个包）
 - `frame_extractor.iss` — Inno Setup 安装脚本，默认装到 `D:\ZhenTiqu`（英文路径，避免中文路径和 Program Files 权限问题），支持自定义目录、桌面快捷方式
 - 安装后配置和缓存都在安装目录下（`config.json` 和 `cache/`）
 - `{app}` 和 `{app}\cache` 都设了 `users-modify` 权限（兜底 Program Files 场景）
-- **GitHub Actions CI**：push 到 main 自动构建，产物：exe + 安装程序（`.github/workflows/build.yml`）
+- **GitHub Actions CI**：push 到 main 自动构建 → 自检 → 创建 Release（`.github/workflows/build.yml`）
 - `build.bat` — Windows 本地打包脚本（双击运行）
 
 ## 窗口图标
@@ -113,12 +113,14 @@ OpenCV 在 Windows 上不支持非 ASCII 路径（中文目录/文件名）。�
 
 ## 项目结构
 - `frame_extractor_gui.py` — 主程序（GUI + 所有算法 + 批量 OCR + 区域检测）
-- `frame_extractor.spec` — PyInstaller 打包配置（含 icon.ico 打包）
+- `frame_extractor.spec` — PyInstaller 打包配置（含 icon.ico 打包 + fail-fast 资产收集）
 - `frame_extractor.iss` — Inno Setup 安装程序脚本
+- `runtime_hook_cv2.py` — PyInstaller runtime hook，预导入 cv2
 - `icon.ico` — 应用图标（窗口标题栏 + exe 文件图标）
 - `detect_region.py` — 独立的区域检测测试脚本
 - `merge_ocr.py` — OCR 结果本地合并去重脚本
 - `智能筛选算法迭代.md` — 完整的算法迭代过程记录
+- `AGENTS.md` — Codex/Claude agent 指令文件
 - `.claude/task.md` — 任务状态记录
 - `.claude/test_results.md` — 测试结果记录
 
@@ -139,12 +141,14 @@ OpenCV 在 Windows 上不支持非 ASCII 路径（中文目录/文件名）。�
 - 清除缓存只扫描 `{安装目录}/cache/` 目录
 
 ## OCR 引擎
-- **自动选择**：macOS 用 RapidOCR (CPU)，Windows 用 PaddleOCR
+- **自动选择**：macOS 用 RapidOCR (CPU)，Windows 优先 PaddleOCR，失败自动 fallback 到 RapidOCR
 - **CPU (RapidOCR)**：纯 CPU，无需额外环境。import 兼容 `rapidocr` 和 `rapidocr_onnxruntime` 两种包名（`pip install rapidocr-onnxruntime`）
 - **GPU (PaddleOCR 3.x)**：需 CUDA + paddlepaddle-gpu + `pip install "paddlex[ocr]"`，失败时展示完整错误日志
 - PaddleOCR 3.x API：构造函数 `use_textline_orientation=True`，`predict()` 返回 OCRResult 字典（`rec_texts`/`rec_scores`）
 - 文件顶部 `import paddle` + `import paddleocr` 预导入，避免 PaddleX 重复初始化
 - OCR 开始时日志输出当前使用的引擎名称
+- **自检机制**：`run_self_check()` 验证打包后 EXE 的依赖完整性（cv2/numpy/paddle/paddleocr/paddlex/rapidocr），通过 `ZHENTIQU_SELF_CHECK=1` 环境变量触发，输出 JSON 报告
+- CI 和 build.bat 都在 PyInstaller 打包后运行自检，失败则中止发布
 
 ### 已踩坑与修复（Windows GPU OCR 全链路）
 
@@ -173,6 +177,11 @@ OpenCV 在 Windows 上不支持非 ASCII 路径（中文目录/文件名）。�
 
 6. **Windows 上 `pip` 不在 PATH**
    - 用 `python -m pip install ...` 代替 `pip install ...`
+
+7. **PaddleX `is_dep_available` 导致 `image_reader.py` 不导入 cv2**
+   - 现象：PyInstaller 打包后 `NameError: name 'cv2' is not defined`（`image_reader.py` line 41）
+   - 原因：PaddleX `image_reader.py` 用 `is_dep_available("opencv-contrib-python")` 判断是否 `import cv2`，PyInstaller 打包后元数据丢失返回 False，cv2 未导入
+   - 修复：`PaddleOCREngine.__init__` 中 patch `is_dep_available`，对 `opencv-contrib-python`/`opencv-python` 返回 True
 
 
 ## 批处理模式
