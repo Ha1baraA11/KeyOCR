@@ -67,13 +67,16 @@ aistudio_sdk modelscope huggingface_hub ujson colorlog pydantic ruamel.yaml
 ```
 python -m pip uninstall opencv-python opencv-contrib-python opencv-python-headless -y
 python -m pip install opencv-contrib-python==4.10.0.84
-python -m pip install paddlepaddle-gpu==3.3.0 -i https://mirror.baidu.com/pypi/simple
+python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
 python -m pip install paddleocr "paddlex[ocr]" pypdfium2
 python -m pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests
 python -m pip install PySide6 numpy pyinstaller
 ```
 
-**注意**：`paddlepaddle-gpu` 不在 PyPI 上，必须用百度源 `-i https://mirror.baidu.com/pypi/simple` 安装。PyPI 上只有 `paddlepaddle`（CPU 版）。
+**注意**：`paddlepaddle-gpu` 不在 PyPI 上，必须用 PaddlePaddle 官方镜像安装：
+- CUDA 11.8：`-i https://www.paddlepaddle.org.cn/packages/stable/cu118/`
+- CUDA 12.6：`-i https://www.paddlepaddle.org.cn/packages/stable/cu126/`
+- PyPI 上只有 `paddlepaddle`（CPU 版）
 
 ### 环境检测命令
 ```

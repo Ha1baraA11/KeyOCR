@@ -29,7 +29,8 @@ jobs:
         python -m pip install opencv-contrib-python==4.10.0.84
         # 发布给用户的安装包必须内置 GPU 版 paddle；
         # CI 机器本身没显卡没关系，只要 wheel 是 compiled_with_cuda=True 就行。
-        python -m pip install paddlepaddle-gpu==3.3.0 -i https://mirror.baidu.com/pypi/simple
+        # 用 PaddlePaddle 官方镜像（百度源已不可靠）
+        python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
         python -m pip install paddleocr "paddlex[ocr]" pypdfium2
         python -c "import paddle; print('paddle:', paddle.__version__, 'CUDA:', paddle.device.is_compiled_with_cuda()); assert paddle.device.is_compiled_with_cuda(), '当前安装的不是 GPU 版 paddle，不能发布 release'"
         # paddleocr/paddlex 传递依赖（pip 可能不自动装全）
