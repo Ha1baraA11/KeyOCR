@@ -27,10 +27,11 @@ jobs:
         # 基础依赖
         python -m pip install PySide6 numpy pyinstaller rapidocr-onnxruntime
         python -m pip install opencv-contrib-python==4.10.0.84
-        # CI 无 GPU，用 CPU 版 paddle（PyPI 直接装，不依赖百度源）
-        python -m pip install paddlepaddle==3.3.0
+        # 发布给用户的安装包必须内置 GPU 版 paddle；
+        # CI 机器本身没显卡没关系，只要 wheel 是 compiled_with_cuda=True 就行。
+        python -m pip install paddlepaddle-gpu==3.3.0 -i https://mirror.baidu.com/pypi/simple
         python -m pip install paddleocr "paddlex[ocr]" pypdfium2
-        python -c "import paddle; print('paddle:', paddle.__version__, 'CUDA:', paddle.device.is_compiled_with_cuda())"
+        python -c "import paddle; print('paddle:', paddle.__version__, 'CUDA:', paddle.device.is_compiled_with_cuda()); assert paddle.device.is_compiled_with_cuda(), '当前安装的不是 GPU 版 paddle，不能发布 release'"
         # paddleocr/paddlex 传递依赖（pip 可能不自动装全）
         python -m pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests
 
@@ -39,17 +40,17 @@ jobs:
         pyinstaller frame_extractor.spec --noconfirm
 
     - name: Self-check bundled runtime
-      continue-on-error: true
       run: |
         $env:ZHENTIQU_SELF_CHECK = "1"
         $env:ZHENTIQU_SELF_CHECK_OUTPUT = "$pwd\dist\self-check.json"
         & ".\dist\帧提取工具.exe"
-        Write-Host "Exit code: $LASTEXITCODE"
-        if (Test-Path "$pwd\dist\self-check.json") {
-          Get-Content "$pwd\dist\self-check.json"
-        } else {
-          Write-Host "self-check.json not found - EXE may have crashed before writing report"
+        if ($LASTEXITCODE -ne 0) {
+          if (Test-Path "$pwd\dist\self-check.json") {
+            Get-Content "$pwd\dist\self-check.json"
+          }
+          throw "Bundled EXE self-check failed"
         }
+        Get-Content "$pwd\dist\self-check.json"
 
     - name: Setup Inno Setup
       uses: Minionguyjpro/inno-setup-action@v1.2.2

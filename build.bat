@@ -55,13 +55,21 @@ echo [5/6] 安装 PaddleOCR GPU 依赖...
 echo 注意: paddlepaddle-gpu 需要百度源，如果网络问题可手动安装
 python -m pip install paddlepaddle-gpu==3.3.0 -i https://mirror.baidu.com/pypi/simple -q
 if errorlevel 1 (
-    echo [警告] paddlepaddle-gpu 安装失败，尝试安装 CPU 版本...
-    python -m pip install paddlepaddle -q
+    echo [错误] paddlepaddle-gpu 安装失败，停止打包
+    echo 不能继续回退到 CPU 版 paddle，否则会打出一个看起来像 GPU 版、实际不能用 CUDA 的安装包
+    pause
+    exit /b 1
 )
 python -m pip install paddleocr "paddlex[ocr]" pypdfium2 -q
 if errorlevel 1 (
     echo [错误] PaddleOCR 核心依赖安装失败
     echo 请确认 NVIDIA 驱动 591.86+、CUDA 11.8、cuDNN 已安装
+    pause
+    exit /b 1
+)
+python -c "import paddle; print('paddle:', paddle.__version__, 'CUDA:', paddle.device.is_compiled_with_cuda()); assert paddle.device.is_compiled_with_cuda(), '当前安装的不是 GPU 版 paddle，停止打包'"
+if errorlevel 1 (
+    echo [错误] 当前安装的 paddle 不是 GPU 版，停止打包
     pause
     exit /b 1
 )

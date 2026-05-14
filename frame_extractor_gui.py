@@ -78,6 +78,14 @@ def _format_exception_chain(exc):
     return " <- ".join(parts)
 
 
+def _can_use_paddle_gpu():
+    try:
+        import paddle
+        return bool(paddle.device.is_compiled_with_cuda())
+    except Exception:
+        return False
+
+
 def _write_self_check_report(output_path, report):
     if not output_path:
         return
@@ -132,7 +140,13 @@ def run_self_check(output_path=None):
 
     ok = report["modules"]["cv2"]["ok"] and report["modules"]["rapidocr"]["ok"]
     if sys.platform == "win32":
-        ok = ok and report["modules"]["paddle"]["ok"] and report["modules"]["paddleocr"]["ok"] and report["modules"]["paddlex"]["ok"]
+        ok = (
+            ok
+            and report["modules"]["paddle"]["ok"]
+            and report["modules"]["paddleocr"]["ok"]
+            and report["modules"]["paddlex"]["ok"]
+            and bool(report.get("paddle_cuda"))
+        )
 
     report["ok"] = ok
     _write_self_check_report(output_path, report)
@@ -163,7 +177,16 @@ class OCREngine:
             return RapidOCREngine()
 
         if engine_type == "gpu":
-            return PaddleOCREngine(require_gpu=True)
+            try:
+                return PaddleOCREngine(require_gpu=True)
+            except Exception as e:
+                fallback = RapidOCREngine()
+                fallback.notice = (
+                    "你当前选择的是 GPU (PaddleOCR)，但当前安装包里的 Paddle GPU 运行时不可用，"
+                    "已自动切换到 RapidOCR (CPU)。\n"
+                    f"原因: {_format_exception_chain(e)}"
+                )
+                return fallback
         return RapidOCREngine()
 
 class RapidOCREngine:
@@ -1457,6 +1480,10 @@ class FrameExtractorGUI(QMainWindow):
                         s[key] = saved[key]
             except Exception:
                 pass
+        if sys.platform == "win32" and s.get("ocr_engine") == "gpu" and not _can_use_paddle_gpu():
+            # 兼容旧配置：之前默认值是 gpu，用户升级到新版本后如果 release 仍是 CPU paddle，
+            # 不应继续因为历史配置而崩溃。
+            s["ocr_engine"] = "auto"
         return s
 
     def _save_settings(self):
