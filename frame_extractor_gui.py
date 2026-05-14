@@ -96,6 +96,59 @@ def _write_self_check_report(output_path, report):
         pass
 
 
+class _PaddleXDepsPatch:
+    """临时绕过 PaddleX 在 frozen 环境里的依赖元数据检查。"""
+
+    def __init__(self):
+        self._deps = None
+        self._orig_require_extra = None
+        self._orig_require_deps = None
+        self._orig_is_dep_available = None
+        self._cv2 = None
+
+    def __enter__(self):
+        try:
+            import builtins
+            import cv2
+            self._cv2 = cv2
+            builtins.cv2 = cv2
+            from paddlex.utils import deps as _paddlex_deps
+            self._deps = _paddlex_deps
+            self._orig_require_extra = getattr(_paddlex_deps, 'require_extra', None)
+            self._orig_require_deps = getattr(_paddlex_deps, 'require_deps', None)
+            self._orig_is_dep_available = getattr(_paddlex_deps, 'is_dep_available', None)
+            if self._orig_require_extra:
+                _paddlex_deps.require_extra = lambda *a, **kw: None
+            if self._orig_require_deps:
+                _paddlex_deps.require_deps = lambda *a, **kw: None
+            if self._orig_is_dep_available:
+                def _patched_is_dep_available(dep_name, *a, **kw):
+                    if dep_name in ('opencv-contrib-python', 'opencv-python'):
+                        return True
+                    return self._orig_is_dep_available(dep_name, *a, **kw)
+                _paddlex_deps.is_dep_available = _patched_is_dep_available
+            try:
+                import paddlex.inference.common.reader.image_reader as _image_reader
+                _image_reader.cv2 = cv2
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if self._deps is not None:
+                if self._orig_require_extra:
+                    self._deps.require_extra = self._orig_require_extra
+                if self._orig_require_deps:
+                    self._deps.require_deps = self._orig_require_deps
+                if self._orig_is_dep_available:
+                    self._deps.is_dep_available = self._orig_is_dep_available
+        except Exception:
+            pass
+
+
 def _import_status(module_names):
     if isinstance(module_names, str):
         module_names = [module_names]
@@ -219,8 +272,18 @@ class RapidOCREngine:
         """img_input: 图片路径(str) 或 numpy 数组
         返回: (texts: list[str], scores: list[float])"""
         result = self._engine(img_input)
-        if result and result.txts:
+        if result and hasattr(result, 'txts') and result.txts:
             return list(result.txts), list(result.scores)
+        if isinstance(result, tuple):
+            # 某些 RapidOCR 版本返回 (boxes, txts, scores) 或兼容 tuple 结构
+            if len(result) >= 3:
+                txts = result[1] or []
+                scores = result[2] or []
+                return list(txts), list(scores)
+            if len(result) >= 2:
+                txts = result[0] or []
+                scores = result[1] or []
+                return list(txts), list(scores)
         return [], []
 
 
@@ -263,41 +326,11 @@ class PaddleOCREngine:
         # 的包名冲突也会导致误报。既然依赖已确认安装（import 成功），直接跳过检查。
         # 特别是 is_dep_available("opencv-contrib-python") 返回 False 会导致
         # image_reader.py 不执行 import cv2，后续使用 cv2 时 NameError。
-        import builtins
-        import cv2
-        builtins.cv2 = cv2
-        _orig_require_extra = None
-        _orig_require_deps = None
-        _orig_is_dep_available = None
-        try:
-            from paddlex.utils import deps as _paddlex_deps
-            _orig_require_extra = getattr(_paddlex_deps, 'require_extra', None)
-            _orig_require_deps = getattr(_paddlex_deps, 'require_deps', None)
-            if _orig_require_extra:
-                _paddlex_deps.require_extra = lambda *a, **kw: None
-            if _orig_require_deps:
-                _paddlex_deps.require_deps = lambda *a, **kw: None
-            # patch is_dep_available，让 image_reader.py 的条件导入生效
-            _orig_is_dep_available = getattr(_paddlex_deps, 'is_dep_available', None)
-            if _orig_is_dep_available:
-                def _patched_is_dep_available(dep_name, *a, **kw):
-                    if dep_name in ('opencv-contrib-python', 'opencv-python'):
-                        return True
-                    return _orig_is_dep_available(dep_name, *a, **kw)
-                _paddlex_deps.is_dep_available = _patched_is_dep_available
-            # 进一步兜底：如果 image_reader 模块已被导入过，手动把 cv2 填回它的全局命名空间。
-            try:
-                import paddlex.inference.common.reader.image_reader as _image_reader
-                _image_reader.cv2 = cv2
-            except Exception:
-                pass
-        except Exception:
-            pass
-
         try:
             # PaddleOCR 3.x API: use_angle_cls → use_textline_orientation,
             # show_log/use_gpu 已移除
-            self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
+            with _PaddleXDepsPatch():
+                self._engine = paddleocr.PaddleOCR(lang='ch', use_textline_orientation=True)
         except Exception as e:
             PaddleOCREngine._instance = None
             if _is_paddlex_dep_error(e):
@@ -305,17 +338,6 @@ class PaddleOCREngine:
                     "paddlex[ocr] 依赖不全，请运行: pip install \"paddlex[ocr]\""
                 ) from e
             raise
-        finally:
-            # 恢复原始函数
-            try:
-                if _orig_require_extra:
-                    _paddlex_deps.require_extra = _orig_require_extra
-                if _orig_require_deps:
-                    _paddlex_deps.require_deps = _orig_require_deps
-                if _orig_is_dep_available:
-                    _paddlex_deps.is_dep_available = _orig_is_dep_available
-            except Exception:
-                pass
         self.name = "PaddleOCR (GPU)" if use_gpu else "PaddleOCR (CPU)"
 
     def ocr(self, img_input):
@@ -324,7 +346,8 @@ class PaddleOCREngine:
         texts, scores = [], []
         try:
             # PaddleOCR 3.x: predict() 返回 OCRResult 字典列表
-            result = self._engine.predict(img_input)
+            with _PaddleXDepsPatch():
+                result = self._engine.predict(img_input)
             for res in result:
                 if hasattr(res, 'get'):
                     rec_texts = res.get('rec_texts', [])
@@ -985,7 +1008,7 @@ class BatchOCRWorker(QThread):
 
                 if texts:
                     text = "\n".join(texts)
-                    avg_score = sum(scores) / len(scores)
+                    avg_score = (sum(scores) / len(scores)) if scores else 0.0
                     results.append(f"=== {fname} (置信度 {avg_score:.2f}) ===\n{text}")
                     self.log.emit(f"[{i+1}/{len(files)}] {fname}: {len(texts)} 行文字")
                 else:
