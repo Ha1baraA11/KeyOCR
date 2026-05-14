@@ -124,15 +124,15 @@ class PaddleOCREngine:
         if require_gpu and not use_gpu:
             raise RuntimeError("当前环境未检测到可用 CUDA，请安装 paddlepaddle-gpu==3.3.0 并确认 NVIDIA 驱动/CUDA 11.8 可用")
 
-        # PaddleX 的 require_extra/require_deps 通过 importlib.metadata 检查包名，
+        # PaddleX 的 require_extra/require_deps/is_dep_available 通过 importlib.metadata 检查包名，
         # 但 PyInstaller 打包后元数据丢失，且 opencv-contrib-python 与 opencv-python
         # 的包名冲突也会导致误报。既然依赖已确认安装（import 成功），直接跳过检查。
-
-        # PaddleX image_reader.py 在初始化时 import cv2，
-        # PyInstaller 打包后 cv2 可能不在 sys.modules 中，提前导入兜底
+        # 特别是 is_dep_available("opencv-contrib-python") 返回 False 会导致
+        # image_reader.py 不执行 import cv2，后续使用 cv2 时 NameError。
         import cv2  # noqa: F401
         _orig_require_extra = None
         _orig_require_deps = None
+        _orig_is_dep_available = None
         try:
             from paddlex.utils import deps as _paddlex_deps
             _orig_require_extra = getattr(_paddlex_deps, 'require_extra', None)
@@ -141,6 +141,14 @@ class PaddleOCREngine:
                 _paddlex_deps.require_extra = lambda *a, **kw: None
             if _orig_require_deps:
                 _paddlex_deps.require_deps = lambda *a, **kw: None
+            # patch is_dep_available，让 image_reader.py 的条件导入生效
+            _orig_is_dep_available = getattr(_paddlex_deps, 'is_dep_available', None)
+            if _orig_is_dep_available:
+                def _patched_is_dep_available(dep_name, *a, **kw):
+                    if dep_name in ('opencv-contrib-python', 'opencv-python'):
+                        return True
+                    return _orig_is_dep_available(dep_name, *a, **kw)
+                _paddlex_deps.is_dep_available = _patched_is_dep_available
         except Exception:
             pass
 
@@ -162,6 +170,8 @@ class PaddleOCREngine:
                     _paddlex_deps.require_extra = _orig_require_extra
                 if _orig_require_deps:
                     _paddlex_deps.require_deps = _orig_require_deps
+                if _orig_is_dep_available:
+                    _paddlex_deps.is_dep_available = _orig_is_dep_available
             except Exception:
                 pass
         self.name = "PaddleOCR (GPU)" if use_gpu else "PaddleOCR (CPU)"
