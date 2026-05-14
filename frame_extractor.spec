@@ -117,6 +117,19 @@ if sys.platform == 'win32':
         pkg_binaries, pkg_datas = _collect_required_assets(pkg, collect_dynamic_libs, collect_data_files, copy_metadata)
         extra_binaries += pkg_binaries
         extra_datas += pkg_datas
+    for pkg in ['rapidocr', 'rapidocr_onnxruntime']:
+        try:
+            extra_datas += collect_data_files(pkg, include_py_files=False)
+        except Exception as e:
+            print(f"[spec] WARNING: collect_data_files({pkg!r}) failed: {e}")
+        try:
+            extra_binaries += collect_dynamic_libs(pkg)
+        except Exception as e:
+            print(f"[spec] WARNING: collect_dynamic_libs({pkg!r}) failed: {e}")
+        try:
+            extra_datas += copy_metadata(pkg)
+        except Exception as e:
+            print(f"[spec] WARNING: copy_metadata({pkg!r}) failed: {e}")
 
 a = Analysis(
     ['frame_extractor_gui.py'],
