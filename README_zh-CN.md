@@ -212,16 +212,16 @@ Push 到 main 分支自动触发 GitHub Actions：构建 → 自检 → 创建 R
 ### 本地打包
 
 ```bash
-# 双击 build.bat 或手动执行：
+# 双击 packaging/build.bat 或手动执行：
 python -m pip install pyinstaller
-pyinstaller frame_extractor.spec
+pyinstaller packaging/frame_extractor.spec
 ```
 
 打包后自动运行自检（`KEYOCR_SELF_CHECK=1`），验证 EXE 内模块完整性 + CUDA 可用性。
 
 ### 生成安装程序
 
-打包完成后，使用 Inno Setup 打开 `frame_extractor.iss` 编译生成安装程序。
+打包完成后，使用 Inno Setup 打开 `packaging/frame_extractor.iss` 编译生成安装程序。
 
 ## OCR 引擎
 
@@ -265,18 +265,25 @@ Sobel 水平边缘 + 投票机制：
 
 ```
 KeyOCR/
-├── frame_extractor_gui.py    # 主程序（GUI + 算法 + OCR + AI 纠错）
-├── frame_extractor.spec      # PyInstaller 打包配置
-├── frame_extractor.iss       # Inno Setup 安装程序脚本
-├── runtime_hook_cv2.py       # PyInstaller runtime hook
-├── build.bat                 # Windows 本地打包脚本
-├── detect_region.py          # 区域检测独立测试脚本
-├── merge_ocr.py              # OCR 结果本地合并去重脚本
-├── run_test.py               # 测试脚本
-├── test_region_detect.py     # 区域检测单元测试
-├── icon.ico                  # 应用图标
-├── KeyOCR_logo.png           # 项目 Logo
-└── requirements.txt          # Python 依赖清单
+├── frame_extractor_gui.py        # 入口文件
+├── merge_ocr.py                  # OCR 结果合并去重脚本
+├── src/                          # 源码模块
+│   ├── ocr_engine.py             # OCR 抽象层（RapidOCR/PaddleOCR）
+│   ├── frame_algorithms.py       # 帧差计算、转换点检测、图像 IO
+│   ├── workers.py                # QThread 后台线程
+│   ├── dialogs.py                # 设置/区域选择对话框
+│   ├── region_detection.py       # Sobel 边缘检测 + 投票机制
+│   └── gui.py                    # 主窗口
+├── tests/                        # 测试脚本
+├── packaging/                    # 构建配置
+│   ├── frame_extractor.spec      # PyInstaller 打包配置
+│   ├── frame_extractor.iss       # Inno Setup 安装脚本
+│   ├── build.bat                 # Windows 本地打包脚本
+│   └── runtime_hook_cv2.py       # PyInstaller runtime hook
+├── assets/                       # 静态资源
+│   ├── icon.ico                  # 应用图标
+│   └── KeyOCR_logo.png           # 项目 Logo
+└── requirements.txt              # Python 依赖清单
 ```
 
 ## 常见问题
