@@ -75,7 +75,6 @@ if sys.platform == 'win32':
         'scipy.special',
         'scipy.spatial',
         'scipy.ndimage',
-        'pyyaml',
         'yaml',
         'tqdm',
         # paddlex[ocr] 核心依赖
@@ -95,11 +94,11 @@ if sys.platform == 'win32':
         'regex',
         'ftfy',
         'imagesize',
-        'Jinja2',
+        'jinja2',
         'lxml',
         'openpyxl',
         'pypdfium2',
-        'python_bidi',
+        'bidi',
         'latex2mathml',
         'premailer',
         # RapidOCR（PaddleOCR 失败时的 fallback）
@@ -139,14 +138,14 @@ if sys.platform == 'win32':
             print(f"[spec] WARNING: copy_metadata({pkg!r}) failed: {e}")
 
 a = Analysis(
-    ['frame_extractor_gui.py'],
+    [os.path.join(SPECPATH, '..', 'frame_extractor_gui.py')],
     pathex=[],
     binaries=extra_binaries,
-    datas=[('assets/icon.ico', '.')] + extra_datas,
+    datas=[(os.path.join(SPECPATH, '..', 'assets', 'icon.ico'), '.')] + extra_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['packaging/runtime_hook_cv2.py'],
+    runtime_hooks=[os.path.join(SPECPATH, 'runtime_hook_cv2.py')],
     excludes=[
         'matplotlib',
         'tkinter',
@@ -179,5 +178,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icon.ico',  # 图标文件
+    icon=os.path.join(SPECPATH, '..', 'assets', 'icon.ico'),  # 图标文件
 )
