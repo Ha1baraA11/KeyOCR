@@ -82,7 +82,7 @@ if errorlevel 1 (
 
 echo [6/6] 开始打包...
 echo.
-python -m PyInstaller frame_extractor.spec --clean --noconfirm
+python -m PyInstaller packaging\frame_extractor.spec --clean --noconfirm
 if errorlevel 1 (
     echo.
     echo [错误] 打包失败，请检查错误信息

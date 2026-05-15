@@ -36,7 +36,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller frame_extractor.spec --noconfirm
+        pyinstaller packaging/frame_extractor.spec --noconfirm
 
     - name: Self-check bundled runtime
       continue-on-error: true
@@ -54,7 +54,7 @@ jobs:
     - name: Setup Inno Setup
       uses: Minionguyjpro/inno-setup-action@v1.2.2
       with:
-        path: frame_extractor.iss
+        path: packaging/frame_extractor.iss
 
     - name: Upload Windows artifacts
       if: github.event_name == 'push'
@@ -85,8 +85,8 @@ jobs:
 
     - name: Build macOS App
       run: |
-        pyinstaller --windowed --onedir --icon=icon.ico --name KeyOCR \
-          --add-data "icon.ico:." \
+        pyinstaller --windowed --onedir --icon=assets/icon.ico --name KeyOCR \
+          --add-data "assets/icon.ico:." \
           --hidden-import rapidocr_onnxruntime \
           --hidden-import rapidocr \
           frame_extractor_gui.py
