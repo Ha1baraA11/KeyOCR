@@ -37,6 +37,13 @@ hidden_imports = [
     'PySide6.QtSvgWidgets',
     'cv2',
     'numpy',
+    'src',
+    'src.ocr_engine',
+    'src.frame_algorithms',
+    'src.workers',
+    'src.dialogs',
+    'src.region_detection',
+    'src.gui',
 ]
 
 # Windows 特有依赖：自动收集 paddle/paddleocr/paddlex 全部子模块
@@ -135,11 +142,11 @@ a = Analysis(
     ['frame_extractor_gui.py'],
     pathex=[],
     binaries=extra_binaries,
-    datas=[('icon.ico', '.')] + extra_datas,
+    datas=[('assets/icon.ico', '.')] + extra_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['runtime_hook_cv2.py'],
+    runtime_hooks=['packaging/runtime_hook_cv2.py'],
     excludes=[
         'matplotlib',
         'tkinter',
@@ -172,5 +179,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico',  # 图标文件
+    icon='assets/icon.ico',  # 图标文件
 )

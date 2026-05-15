@@ -9,7 +9,7 @@ OutputBaseFilename=KeyOCR_Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=icon.ico
+SetupIconFile=../assets/icon.ico
 UninstallDisplayIcon={app}\KeyOCR.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -19,7 +19,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "dist\KeyOCR.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "../assets/icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}"; Permissions: users-modify
