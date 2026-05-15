@@ -98,19 +98,96 @@ pip install PySide6 opencv-contrib-python==4.10.0.84 numpy rapidocr-onnxruntime
 python frame_extractor_gui.py
 ```
 
-### Windows (GPU)
+### Windows (GPU) — Full Setup Guide
+
+#### Prerequisites
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Python | 3.10 or 3.12 | paddlepaddle-gpu does NOT support 3.13+ |
+| NVIDIA GPU | Any with CUDA support | RTX 20/30/40 series recommended |
+| CUDA Toolkit | 11.8 | Must match paddlepaddle-gpu build |
+| cuDNN | 8.6+ for CUDA 11.8 | Required by PaddlePaddle |
+
+#### Step 1: Install CUDA Toolkit 11.8
+
+1. Go to [NVIDIA CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive)
+2. Select **CUDA Toolkit 11.8.0**
+3. Choose your OS: **Windows → x86_64 → 10/11 → exe (local)**
+4. Download the ~3 GB installer
+5. Run the installer, select **Custom (Advanced)**
+6. Make sure **CUDA > Development** and **CUDA > Runtime** are checked
+7. Complete the installation
+
+Verify installation:
 
 ```bash
+nvcc --version
+# Should output: Cuda compilation tools, release 11.8
+```
+
+> If `nvcc` is not found, add `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin` to your system PATH.
+
+#### Step 2: Install cuDNN
+
+1. Go to [NVIDIA cuDNN Download](https://developer.nvidia.com/rdp/cudnn-archive) (requires free NVIDIA account)
+2. Select **cuDNN v8.6.0 (or later) for CUDA 11.x**
+3. Download the **Windows** zip
+4. Extract and copy files to CUDA installation:
+   - `bin\cudnn*.dll` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin`
+   - `include\cudnn*.h` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\include`
+   - `lib\x64\cudnn*.lib` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\lib\x64`
+
+#### Step 3: Install Python Dependencies
+
+Open PowerShell or CMD and run each command in order:
+
+```bash
+# 1. Install Python (3.10 or 3.12, NOT 3.13+)
+#    Download from https://www.python.org/downloads/
+#    Check "Add Python to PATH" during installation
+
+# 2. Remove conflicting OpenCV packages
 python -m pip uninstall opencv-python opencv-contrib-python opencv-python-headless -y
+
+# 3. Install OpenCV (must be contrib version, pinned to 4.10.0.84)
 python -m pip install opencv-contrib-python==4.10.0.84
+
+# 4. Install PaddlePaddle GPU (from PaddlePaddle official mirror, NOT PyPI)
 python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+
+# 5. Install PaddleOCR and PaddleX
 python -m pip install paddleocr "paddlex[ocr]" pypdfium2
+
+# 6. Install PaddleOCR runtime dependencies
 python -m pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests
+
+# 7. Install GUI framework
 python -m pip install PySide6 numpy
+```
+
+> **Important**: `paddlepaddle-gpu` is NOT on PyPI. You must use the PaddlePaddle official mirror (`-i https://www.paddlepaddle.org.cn/...`). Using `pip install paddlepaddle` from PyPI will install the CPU-only version.
+
+#### Step 4: Run
+
+```bash
 python frame_extractor_gui.py
 ```
 
+#### Step 5: Verify GPU is Working
+
+In the app, go to Settings → OCR Engine → should show "GPU (PaddleOCR)" as available.
+
+Or verify manually:
+
+```bash
+python -c "import paddle; print('CUDA:', paddle.device.is_compiled_with_cuda())"
+# Should output: CUDA: True
+```
+
 ### Windows (CPU, no GPU)
+
+If you don't have an NVIDIA GPU, use the simpler CPU setup:
 
 ```bash
 python -m pip install opencv-contrib-python==4.10.0.84 PySide6 numpy rapidocr-onnxruntime

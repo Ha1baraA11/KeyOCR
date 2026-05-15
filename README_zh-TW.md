@@ -98,19 +98,96 @@ pip install PySide6 opencv-contrib-python==4.10.0.84 numpy rapidocr-onnxruntime
 python frame_extractor_gui.py
 ```
 
-### Windows（GPU）
+### Windows（GPU）— 完整安裝指南
+
+#### 前置條件
+
+| 元件 | 版本 | 說明 |
+|------|------|------|
+| Python | 3.10 或 3.12 | paddlepaddle-gpu 不支援 3.13+ |
+| NVIDIA 顯示卡 | 任意支援 CUDA 的顯示卡 | 推薦 RTX 20/30/40 系列 |
+| CUDA Toolkit | 11.8 | 必須與 paddlepaddle-gpu 版本匹配 |
+| cuDNN | 8.6+（對應 CUDA 11.8） | PaddlePaddle 執行必需 |
+
+#### 第一步：安裝 CUDA Toolkit 11.8
+
+1. 開啟 [NVIDIA CUDA Toolkit 歸檔頁](https://developer.nvidia.com/cuda-toolkit-archive)
+2. 選擇 **CUDA Toolkit 11.8.0**
+3. 選擇系統設定：**Windows → x86_64 → 10/11 → exe (local)**
+4. 下載約 3 GB 的安裝程式
+5. 執行安裝程式，選擇 **自訂（進階）**
+6. 確保勾選 **CUDA > Development** 和 **CUDA > Runtime**
+7. 完成安裝
+
+驗證安裝：
 
 ```bash
+nvcc --version
+# 應輸出：Cuda compilation tools, release 11.8
+```
+
+> 如果提示 `nvcc` 找不到，需要將 `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin` 加入系統 PATH 環境變數。
+
+#### 第二步：安裝 cuDNN
+
+1. 開啟 [NVIDIA cuDNN 下載頁](https://developer.nvidia.com/rdp/cudnn-archive)（需要註冊免費 NVIDIA 帳號）
+2. 選擇 **cuDNN v8.6.0（或更高版本）for CUDA 11.x**
+3. 下載 **Windows** 版本的 zip 檔案
+4. 解壓後將檔案複製到 CUDA 安裝目錄：
+   - `bin\cudnn*.dll` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin`
+   - `include\cudnn*.h` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\include`
+   - `lib\x64\cudnn*.lib` → `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\lib\x64`
+
+#### 第三步：安裝 Python 依賴
+
+開啟 PowerShell 或 CMD，按順序執行：
+
+```bash
+# 1. 安裝 Python（3.10 或 3.12，不要用 3.13+）
+#    下載地址：https://www.python.org/downloads/
+#    安裝時勾選 "Add Python to PATH"
+
+# 2. 移除衝突的 OpenCV 套件
 python -m pip uninstall opencv-python opencv-contrib-python opencv-python-headless -y
+
+# 3. 安裝 OpenCV（必須用 contrib 版本，鎖定 4.10.0.84）
 python -m pip install opencv-contrib-python==4.10.0.84
+
+# 4. 安裝 PaddlePaddle GPU 版（必須用百度官方鏡像，不能用 PyPI）
 python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+
+# 5. 安裝 PaddleOCR 和 PaddleX
 python -m pip install paddleocr "paddlex[ocr]" pypdfium2
+
+# 6. 安裝 PaddleOCR 執行時依賴
 python -m pip install pandas scipy scikit-image shapely pyclipper rapidfuzz lmdb pyyaml tqdm protobuf Pillow requests
+
+# 7. 安裝 GUI 框架
 python -m pip install PySide6 numpy
+```
+
+> **重要提示**：`paddlepaddle-gpu` 不在 PyPI 上，必須使用 PaddlePaddle 官方鏡像（`-i https://www.paddlepaddle.org.cn/...`）。如果用 `pip install paddlepaddle` 從 PyPI 安裝，裝的是 CPU 版本，不支援 GPU 加速。
+
+#### 第四步：執行程式
+
+```bash
 python frame_extractor_gui.py
 ```
 
+#### 第五步：驗證 GPU 是否正常運作
+
+在程式中開啟 設定 → OCR 引擎，應顯示"GPU (PaddleOCR)"可用。
+
+或手動驗證：
+
+```bash
+python -c "import paddle; print('CUDA:', paddle.device.is_compiled_with_cuda())"
+# 應輸出：CUDA: True
+```
+
 ### Windows（CPU，無顯示卡）
+
+如果沒有 NVIDIA 顯示卡，使用簡化的 CPU 方案：
 
 ```bash
 python -m pip install opencv-contrib-python==4.10.0.84 PySide6 numpy rapidocr-onnxruntime
