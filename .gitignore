@@ -34,3 +34,4 @@ first_frame.png
 # Claude 相关文件（不推送到 GitHub）
 CLAUDE.md
 AGENTS.md
+memory-bank/
