@@ -212,16 +212,16 @@ Push to main branch triggers GitHub Actions: build → self-check → create Rel
 ### Local Build
 
 ```bash
-# Double-click build.bat or run manually:
+# Double-click packaging/build.bat or run manually:
 python -m pip install pyinstaller
-pyinstaller frame_extractor.spec
+pyinstaller packaging/frame_extractor.spec
 ```
 
 After packaging, self-check runs automatically (`KEYOCR_SELF_CHECK=1`), verifying EXE module integrity + CUDA availability.
 
 ### Generate Installer
 
-After packaging, open `frame_extractor.iss` with Inno Setup to compile the installer.
+After packaging, open `packaging/frame_extractor.iss` with Inno Setup to compile the installer.
 
 ## OCR Engines
 
@@ -265,18 +265,25 @@ Four merge strategies:
 
 ```
 KeyOCR/
-├── frame_extractor_gui.py    # Main app (GUI + algorithms + OCR + AI correction)
-├── frame_extractor.spec      # PyInstaller build config
-├── frame_extractor.iss       # Inno Setup installer script
-├── runtime_hook_cv2.py       # PyInstaller runtime hook
-├── build.bat                 # Windows local build script
-├── detect_region.py          # Region detection standalone test
-├── merge_ocr.py              # OCR result local merge/dedup script
-├── run_test.py               # Test script
-├── test_region_detect.py     # Region detection unit test
-├── icon.ico                  # App icon
-├── KeyOCR_logo.png           # Project logo
-└── requirements.txt          # Python dependencies
+├── frame_extractor_gui.py        # Entry point (import + launch)
+├── merge_ocr.py                  # OCR result merge/dedup script
+├── src/                          # Source modules
+│   ├── ocr_engine.py             # OCR abstraction (RapidOCR/PaddleOCR)
+│   ├── frame_algorithms.py       # Frame diff, transition detection, image IO
+│   ├── workers.py                # QThread background workers
+│   ├── dialogs.py                # Settings & region selector dialogs
+│   ├── region_detection.py       # Sobel edge detection + voting
+│   └── gui.py                    # Main window
+├── tests/                        # Test scripts
+├── packaging/                    # Build config
+│   ├── frame_extractor.spec      # PyInstaller config
+│   ├── frame_extractor.iss       # Inno Setup installer script
+│   ├── build.bat                 # Windows local build script
+│   └── runtime_hook_cv2.py       # PyInstaller runtime hook
+├── assets/                       # Static assets
+│   ├── icon.ico                  # App icon
+│   └── KeyOCR_logo.png           # Project logo
+└── requirements.txt              # Python dependencies
 ```
 
 ## Troubleshooting

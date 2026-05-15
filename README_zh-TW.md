@@ -212,16 +212,16 @@ Push 到 main 分支自動觸發 GitHub Actions：建置 → 自檢 → 建立 R
 ### 本機打包
 
 ```bash
-# 雙擊 build.bat 或手動執行：
+# 雙擊 packaging/build.bat 或手動執行：
 python -m pip install pyinstaller
-pyinstaller frame_extractor.spec
+pyinstaller packaging/frame_extractor.spec
 ```
 
 打包後自動執行自檢（`KEYOCR_SELF_CHECK=1`），驗證 EXE 內模組完整性 + CUDA 可用性。
 
 ### 產生安裝程式
 
-打包完成後，使用 Inno Setup 開啟 `frame_extractor.iss` 編譯產生安裝程式。
+打包完成後，使用 Inno Setup 開啟 `packaging/frame_extractor.iss` 編譯產生安裝程式。
 
 ## OCR 引擎
 
@@ -265,18 +265,25 @@ Sobel 水平邊緣 + 投票機制：
 
 ```
 KeyOCR/
-├── frame_extractor_gui.py    # 主程式（GUI + 演算法 + OCR + AI 糾錯）
-├── frame_extractor.spec      # PyInstaller 打包設定
-├── frame_extractor.iss       # Inno Setup 安裝程式腳本
-├── runtime_hook_cv2.py       # PyInstaller runtime hook
-├── build.bat                 # Windows 本機打包腳本
-├── detect_region.py          # 區域偵測獨立測試腳本
-├── merge_ocr.py              # OCR 結果本機合併去重腳本
-├── run_test.py               # 測試腳本
-├── test_region_detect.py     # 區域偵測單元測試
-├── icon.ico                  # 應用程式圖示
-├── KeyOCR_logo.png           # 專案 Logo
-└── requirements.txt          # Python 依賴清單
+├── frame_extractor_gui.py        # 入口檔案
+├── merge_ocr.py                  # OCR 結果合併去重腳本
+├── src/                          # 原始碼模組
+│   ├── ocr_engine.py             # OCR 抽象層（RapidOCR/PaddleOCR）
+│   ├── frame_algorithms.py       # 幀差計算、轉換點偵測、影像 IO
+│   ├── workers.py                # QThread 背景執行緒
+│   ├── dialogs.py                # 設定/區域選擇對話框
+│   ├── region_detection.py       # Sobel 邊緣偵測 + 投票機制
+│   └── gui.py                    # 主視窗
+├── tests/                        # 測試腳本
+├── packaging/                    # 建置設定
+│   ├── frame_extractor.spec      # PyInstaller 打包設定
+│   ├── frame_extractor.iss       # Inno Setup 安裝腳本
+│   ├── build.bat                 # Windows 本機打包腳本
+│   └── runtime_hook_cv2.py       # PyInstaller runtime hook
+├── assets/                       # 靜態資源
+│   ├── icon.ico                  # 應用程式圖示
+│   └── KeyOCR_logo.png           # 專案 Logo
+└── requirements.txt              # Python 依賴清單
 ```
 
 ## 常見問題
