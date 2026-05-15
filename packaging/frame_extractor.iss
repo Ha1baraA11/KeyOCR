@@ -18,7 +18,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标："
 
 [Files]
-Source: "dist\KeyOCR.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\KeyOCR.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "../assets/icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
