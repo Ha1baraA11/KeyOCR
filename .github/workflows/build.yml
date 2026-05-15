@@ -63,7 +63,7 @@ jobs:
         name: windows-build
         path: |
           dist/KeyOCR.exe
-          Output/KeyOCR_Setup.exe
+          packaging/Output/KeyOCR_Setup.exe
 
   build-macos:
     runs-on: macos-latest
@@ -123,8 +123,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         tag="v$(date +%Y%m%d-%H%M%S)"
-        cp "windows/KeyOCR.exe" "KeyOCR.exe"
-        cp "windows/KeyOCR_Setup.exe" "KeyOCR_Setup.exe"
+        cp "windows/dist/KeyOCR.exe" "KeyOCR.exe"
+        cp "windows/packaging/Output/KeyOCR_Setup.exe" "KeyOCR_Setup.exe"
         cd macos && zip -r ../KeyOCR-macOS.zip KeyOCR.app && cd ..
         gh release create "$tag" \
           --title "KeyOCR $tag" \
