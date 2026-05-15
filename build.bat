@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo    帧提取工具 - Windows 打包脚本
+echo    KeyOCR - Windows 打包脚本
 echo ========================================
 echo.
 
@@ -91,28 +91,28 @@ if errorlevel 1 (
 )
 
 echo [附加检查] 验证打包后的 EXE 依赖完整性...
-set ZHENTIQU_SELF_CHECK=1
-set ZHENTIQU_SELF_CHECK_OUTPUT=%TEMP%\zhentiqu-self-check.json
-dist\帧提取工具.exe
+set KEYOCR_SELF_CHECK=1
+set KEYOCR_SELF_CHECK_OUTPUT=%TEMP%\keyocr-self-check.json
+dist\KeyOCR.exe
 if errorlevel 1 (
     echo [错误] 打包后的 EXE 自检失败
-    if exist "%ZHENTIQU_SELF_CHECK_OUTPUT%" type "%ZHENTIQU_SELF_CHECK_OUTPUT%"
+    if exist "%KEYOCR_SELF_CHECK_OUTPUT%" type "%KEYOCR_SELF_CHECK_OUTPUT%"
     pause
     exit /b 1
 )
-if exist "%ZHENTIQU_SELF_CHECK_OUTPUT%" (
+if exist "%KEYOCR_SELF_CHECK_OUTPUT%" (
     echo 自检报告:
-    type "%ZHENTIQU_SELF_CHECK_OUTPUT%"
+    type "%KEYOCR_SELF_CHECK_OUTPUT%"
 )
-set ZHENTIQU_SELF_CHECK=
-set ZHENTIQU_SELF_CHECK_OUTPUT=
+set KEYOCR_SELF_CHECK=
+set KEYOCR_SELF_CHECK_OUTPUT=
 
 echo.
 echo ========================================
 echo    打包完成！
 echo ========================================
 echo.
-echo 可执行文件位置: dist\帧提取工具.exe
+echo 可执行文件位置: dist\KeyOCR.exe
 echo.
 echo 提示:
 echo - 首次运行 OCR 可能会下载模型，时间较长

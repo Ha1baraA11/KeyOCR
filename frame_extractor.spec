@@ -159,7 +159,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='帧提取工具',
+    name='KeyOCR',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
