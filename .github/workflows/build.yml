@@ -146,7 +146,7 @@ jobs:
         tag="v$(date +%Y%m%d-%H%M%S)"
         cp "windows/KeyOCR.exe" "KeyOCR.exe"
         cp "windows/KeyOCR_Setup.exe" "KeyOCR_Setup.exe"
-        cd macos && zip -r ../KeyOCR-macOS.zip KeyOCR.app && cd ..
+        cd macos && mkdir -p KeyOCR.app && mv Contents KeyOCR.app/ && zip -r ../KeyOCR-macOS.zip KeyOCR.app && cd ..
         gh release create "$tag" \
           --title "KeyOCR $tag" \
           --generate-notes \
