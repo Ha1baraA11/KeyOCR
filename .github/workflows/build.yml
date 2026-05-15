@@ -56,14 +56,20 @@ jobs:
       with:
         path: packaging/frame_extractor.iss
 
+    - name: Stage Windows artifacts
+      if: github.event_name == 'push'
+      run: |
+        cp dist/KeyOCR.exe KeyOCR.exe
+        cp packaging/Output/KeyOCR_Setup.exe KeyOCR_Setup.exe
+
     - name: Upload Windows artifacts
       if: github.event_name == 'push'
       uses: actions/upload-artifact@v4
       with:
         name: windows-build
         path: |
-          dist/KeyOCR.exe
-          packaging/Output/KeyOCR_Setup.exe
+          KeyOCR.exe
+          KeyOCR_Setup.exe
 
   build-macos:
     runs-on: macos-latest
@@ -91,12 +97,16 @@ jobs:
           --hidden-import rapidocr \
           frame_extractor_gui.py
 
+    - name: Stage macOS artifacts
+      if: github.event_name == 'push'
+      run: mv dist/KeyOCR.app KeyOCR.app
+
     - name: Upload macOS artifacts
       if: github.event_name == 'push'
       uses: actions/upload-artifact@v4
       with:
         name: macos-build
-        path: dist/KeyOCR.app
+        path: KeyOCR.app
 
   release:
     needs: [build-windows, build-macos]
@@ -123,8 +133,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         tag="v$(date +%Y%m%d-%H%M%S)"
-        cp "windows/dist/KeyOCR.exe" "KeyOCR.exe"
-        cp "windows/packaging/Output/KeyOCR_Setup.exe" "KeyOCR_Setup.exe"
+        cp "windows/KeyOCR.exe" "KeyOCR.exe"
+        cp "windows/KeyOCR_Setup.exe" "KeyOCR_Setup.exe"
         cd macos && zip -r ../KeyOCR-macOS.zip KeyOCR.app && cd ..
         gh release create "$tag" \
           --title "KeyOCR $tag" \
