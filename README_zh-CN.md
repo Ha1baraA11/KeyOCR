@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="KeyOCR_logo.png" alt="KeyOCR Logo" width="200">
+  <img src="assets/KeyOCR_logo.png" alt="KeyOCR Logo" width="200">
 </p>
 
 <h1 align="center">KeyOCR</h1>
