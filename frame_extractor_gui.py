@@ -1565,7 +1565,7 @@ class FrameExtractorGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("帧提取工具")
+        self.setWindowTitle("KeyOCR")
         self.setMinimumSize(640, 520)
         icon_path = os.path.join(get_app_dir(), 'icon.ico')
         if os.path.exists(icon_path):
@@ -2067,8 +2067,8 @@ class FrameExtractorGUI(QMainWindow):
 
 
 if __name__ == "__main__":
-    if os.environ.get("ZHENTIQU_SELF_CHECK") == "1":
-        _output = os.environ.get("ZHENTIQU_SELF_CHECK_OUTPUT")
+    if os.environ.get("KEYOCR_SELF_CHECK") == "1":
+        _output = os.environ.get("KEYOCR_SELF_CHECK_OUTPUT")
         try:
             sys.exit(run_self_check(_output))
         except Exception as _e:
