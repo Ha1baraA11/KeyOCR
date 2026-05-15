@@ -27,5 +27,6 @@ wheels/
 
 # 项目输出和缓存
 cache/
+最终版/
 config.json
 first_frame.png
