@@ -1084,10 +1084,30 @@ class AICleanupWorker(QThread):
     API_KEY = ""
     MODEL = "mimo-v2.5-pro"
 
-    def __init__(self, ocr_text, output_path):
+    DEFAULT_PROMPT = (
+        "以下是从视频帧中 OCR 识别出的文字，按帧的顺序排列。\n\n"
+        "【你的任务】\n"
+        "把这段文字改写成口语化的大白话文案，就像平时说话一样自然。"
+        "不要用文言文、书面语、成语堆砌，要用大白话。"
+        "OCR 有错字，你需要根据上下文纠正。\n\n"
+        "【格式要求】\n"
+        "- 最好一行就是完整的一句话\n"
+        "- 一行可以是任意字数，没有上限\n"
+        "- 但两行加在一起不能超过 12 个字\n"
+        "- 读起来像说话，有停顿感\n\n"
+        "【内容要求】\n"
+        "- 涉及\"橱窗\"的内容必须保留原文意思，一个字都不能改\n"
+        "- 其他内容可以自由改写，只要大意相近、能吸引人就行\n"
+        "- 可以加情绪、加画面感、加悬念\n"
+        "- 不要加任何编号、符号、标题、解释，只输出纯文字\n\n"
+        "OCR 原文：\n{ocr_text}"
+    )
+
+    def __init__(self, ocr_text, output_path, prompt_template=None):
         super().__init__()
         self.ocr_text = ocr_text
         self.output_path = output_path
+        self.prompt_template = prompt_template or self.DEFAULT_PROMPT
         self._running = True
 
     def run(self):
@@ -1096,24 +1116,7 @@ class AICleanupWorker(QThread):
 
             self.log.emit("正在调用 AI 纠错润色...")
 
-            prompt = (
-                "以下是从视频帧中 OCR 识别出的文字，按帧的顺序排列。\n\n"
-                "【你的任务】\n"
-                "把这段文字改写成口语化的大白话文案，就像平时说话一样自然。"
-                "不要用文言文、书面语、成语堆砌，要用大白话。"
-                "OCR 有错字，你需要根据上下文纠正。\n\n"
-                "【格式要求】\n"
-                "- 最好一行就是完整的一句话\n"
-                "- 一行可以是任意字数，没有上限\n"
-                "- 但两行加在一起不能超过 12 个字\n"
-                "- 读起来像说话，有停顿感\n\n"
-                "【内容要求】\n"
-                "- 涉及\"橱窗\"的内容必须保留原文意思，一个字都不能改\n"
-                "- 其他内容可以自由改写，只要大意相近、能吸引人就行\n"
-                "- 可以加情绪、加画面感、加悬念\n"
-                "- 不要加任何编号、符号、标题、解释，只输出纯文字\n\n"
-                f"OCR 原文：\n{self.ocr_text}"
-            )
+            prompt = self.prompt_template.replace("{ocr_text}", self.ocr_text)
 
             headers = {
                 "x-api-key": self.API_KEY,
@@ -1248,6 +1251,16 @@ class SettingsDialog(QDialog):
         cache_layout.addWidget(btn_clear)
         layout.addWidget(cache_group)
 
+        # === AI 提示词 ===
+        ai_prompt_group = QGroupBox("AI 提示词")
+        ai_prompt_layout = QVBoxLayout(ai_prompt_group)
+        ai_prompt_layout.addWidget(QLabel("自定义 AI 纠错润色的提示词模板，使用 {ocr_text} 作为 OCR 文本占位符"))
+        self.ai_prompt_edit = QTextEdit()
+        self.ai_prompt_edit.setMinimumHeight(180)
+        self.ai_prompt_edit.setPlainText(self.settings.get("ai_prompt", AICleanupWorker.DEFAULT_PROMPT))
+        ai_prompt_layout.addWidget(self.ai_prompt_edit)
+        layout.addWidget(ai_prompt_group)
+
         # === 自动清理 ===
         self.auto_cleanup_check = QCheckBox("生成最终版后自动清理中间文件")
         self.auto_cleanup_check.setChecked(self.settings.get("auto_cleanup", "false") == "true")
@@ -1274,6 +1287,7 @@ class SettingsDialog(QDialog):
             "ocr_engine": self.engine_combo.currentData(),
             "ocr_mode": self.mode_combo.currentData(),
             "auto_cleanup": "true" if self.auto_cleanup_check.isChecked() else "false",
+            "ai_prompt": self.ai_prompt_edit.toPlainText().strip(),
         }
 
     def _test_api(self):
@@ -1546,6 +1560,7 @@ class FrameExtractorGUI(QMainWindow):
         "ocr_engine": "auto",
         "ocr_mode": "auto",
         "auto_cleanup": "true",
+        "ai_prompt": AICleanupWorker.DEFAULT_PROMPT,
     }
 
     def __init__(self):
@@ -1585,6 +1600,11 @@ class FrameExtractorGUI(QMainWindow):
         except Exception:
             pass
 
+    def _ensure_final_output_dir(self):
+        final_dir = os.path.join(get_app_dir(), "最终版")
+        os.makedirs(final_dir, exist_ok=True)
+        return final_dir
+
     def _init_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -1592,9 +1612,14 @@ class FrameExtractorGUI(QMainWindow):
         layout.setSpacing(14)
         layout.setContentsMargins(24, 20, 24, 20)
 
-        # --- 顶部栏：设置按钮 ---
+        # --- 顶部栏：按钮 ---
         top_bar = QHBoxLayout()
         top_bar.addStretch()
+        btn_open_folder = QPushButton("打开文件夹")
+        btn_open_folder.setFixedWidth(80)
+        btn_open_folder.setFixedHeight(28)
+        btn_open_folder.clicked.connect(self._open_final_output_folder)
+        top_bar.addWidget(btn_open_folder)
         btn_settings = QPushButton("设置")
         btn_settings.setFixedWidth(60)
         btn_settings.setFixedHeight(28)
@@ -1658,6 +1683,10 @@ class FrameExtractorGUI(QMainWindow):
             self._save_settings()
             self.log_text.append("设置已保存")
 
+    def _open_final_output_folder(self):
+        final_dir = self._ensure_final_output_dir()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(final_dir))
+
     def _open_video(self):
         if not hasattr(self, '_safe_video'):
             self._safe_video, self._safe_tmp = _safe_open_path(self.video_path)
@@ -1715,10 +1744,14 @@ class FrameExtractorGUI(QMainWindow):
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("批处理完成")
             msg_box.setText(f"共处理 {self._batch_total} 个视频")
-            btn_folder = msg_box.addButton("打开最后输出目录", QMessageBox.AcceptRole)
+            btn_final = msg_box.addButton("打开最终版文件夹", QMessageBox.AcceptRole)
+            btn_folder = msg_box.addButton("打开最后缓存目录", QMessageBox.ActionRole)
             msg_box.addButton("关闭", QMessageBox.RejectRole)
             msg_box.exec()
-            if msg_box.clickedButton() == btn_folder:
+            if msg_box.clickedButton() == btn_final:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(
+                    os.path.join(get_app_dir(), "最终版")))
+            elif msg_box.clickedButton() == btn_folder:
                 QDesktopServices.openUrl(QUrl.fromLocalFile(last_output))
             return
 
@@ -1936,7 +1969,8 @@ class FrameExtractorGUI(QMainWindow):
         self.log_text.append("AI 纠错润色...")
         self.log_text.append(f"{'='*40}")
 
-        worker = AICleanupWorker(ocr_text, final_path)
+        worker = AICleanupWorker(ocr_text, final_path,
+                                  prompt_template=self.settings.get("ai_prompt", AICleanupWorker.DEFAULT_PROMPT))
         worker.API_URL = self.settings.get("api_url", AICleanupWorker.API_URL)
         worker.API_KEY = self.settings.get("api_key", AICleanupWorker.API_KEY)
         worker.MODEL = self.settings.get("model", AICleanupWorker.MODEL)
@@ -1970,6 +2004,19 @@ class FrameExtractorGUI(QMainWindow):
 
         if success and self.settings.get("auto_cleanup", "false") == "true":
             self._auto_cleanup_output()
+
+        # 复制最终版到 输出目录
+        if success:
+            try:
+                final_dir = self._ensure_final_output_dir()
+                video_stem = Path(self.video_path).stem
+                src = os.path.join(self.output_path, f"{video_stem}-最终版.txt")
+                if os.path.exists(src):
+                    dst = os.path.join(final_dir, f"{video_stem}-最终版.txt")
+                    shutil.copy2(src, dst)
+                    self.log_text.append(f"已复制到: {dst}")
+            except Exception as e:
+                self.log_text.append(f"复制最终版失败: {e}")
 
         # 批处理模式：自动处理下一个视频
         if getattr(self, '_is_batch', False):
@@ -2005,12 +2052,16 @@ class FrameExtractorGUI(QMainWindow):
         msg_box.setWindowTitle("完成")
         msg_box.setText(f"已生成：{video_stem}-最终版.txt")
         btn_open = msg_box.addButton("打开文件", QMessageBox.AcceptRole)
-        btn_folder = msg_box.addButton("打开文件夹", QMessageBox.ActionRole)
+        btn_final = msg_box.addButton("打开最终版文件夹", QMessageBox.ActionRole)
+        btn_folder = msg_box.addButton("打开缓存文件夹", QMessageBox.ActionRole)
         msg_box.addButton("关闭", QMessageBox.RejectRole)
         msg_box.exec()
 
         if msg_box.clickedButton() == btn_open:
             QDesktopServices.openUrl(QUrl.fromLocalFile(final_path))
+        elif msg_box.clickedButton() == btn_final:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(
+                os.path.join(get_app_dir(), "最终版")))
         elif msg_box.clickedButton() == btn_folder:
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.output_path))
 
